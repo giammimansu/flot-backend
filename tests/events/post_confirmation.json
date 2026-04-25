@@ -1,0 +1,21 @@
+{
+  "version": "1",
+  "triggerSource": "PostConfirmation_ConfirmSignUp",
+  "region": "eu-south-1",
+  "userPoolId": "eu-south-1_test",
+  "userName": "test-user-001",
+  "callerContext": {
+    "awsSdkVersion": "aws-sdk-python-3.0",
+    "clientId": "test-client-id"
+  },
+  "request": {
+    "userAttributes": {
+      "sub": "test-user-001",
+      "email": "mario.rossi@gmail.com",
+      "name": "Mario Rossi",
+      "picture": "https://lh3.googleusercontent.com/photo.jpg",
+      "email_verified": "true"
+    }
+  },
+  "response": {}
+}

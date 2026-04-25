@@ -1,0 +1,16 @@
+{
+  "LambdaFunctionConfigurations": [
+    {
+      "LambdaFunctionArn": "arn:aws:lambda:eu-south-1:183695702800:function:flot-process-photo-dev",
+      "Events": ["s3:ObjectCreated:*"],
+      "Filter": {
+        "Key": {
+          "FilterRules": [
+            {"Name": "prefix", "Value": "photos/"},
+            {"Name": "suffix", "Value": "original.webp"}
+          ]
+        }
+      }
+    }
+  ]
+}

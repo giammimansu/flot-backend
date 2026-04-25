@@ -1,0 +1,20 @@
+{
+  "httpMethod": "GET",
+  "path": "/users/me",
+  "pathParameters": null,
+  "queryStringParameters": null,
+  "headers": {
+    "Content-Type": "application/json",
+    "origin": "http://localhost:3000"
+  },
+  "body": null,
+  "requestContext": {
+    "authorizer": {
+      "claims": {
+        "sub": "test-user-001",
+        "email": "mario.rossi@gmail.com"
+      }
+    }
+  },
+  "isBase64Encoded": false
+}

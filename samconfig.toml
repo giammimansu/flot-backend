@@ -1,0 +1,31 @@
+# SAM CLI deploy configuration
+# Usage: sam deploy --config-env dev
+
+version = 0.1
+
+[default.build.parameters]
+cached = true
+parallel = true
+
+[dev]
+[dev.deploy.parameters]
+stack_name = "flot-backend-dev"
+resolve_s3 = true
+s3_prefix = "flot-backend-dev"
+region = "eu-south-1"
+capabilities = "CAPABILITY_IAM CAPABILITY_AUTO_EXPAND"
+confirm_changeset = true
+parameter_overrides = "Stage=dev FakeDoorMode=true"
+tags = "Project=flot Environment=dev"
+
+[prod]
+[prod.deploy.parameters]
+stack_name = "flot-backend-prod"
+resolve_s3 = true
+s3_prefix = "flot-backend-prod"
+region = "eu-south-1"
+capabilities = "CAPABILITY_IAM CAPABILITY_AUTO_EXPAND"
+confirm_changeset = true
+parameter_overrides = "Stage=prod FakeDoorMode=false"
+tags = "Project=flot Environment=prod"
+fail_on_empty_changeset = false

@@ -1,0 +1,598 @@
+
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--font-sans); }
+  .root { padding: 16px 0; color: var(--color-text-primary); }
+  h2 { font-size: 18px; font-weight: 500; margin-bottom: 4px; }
+  .subtitle { font-size: 13px; color: var(--color-text-secondary); margin-bottom: 20px; }
+
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 20px; }
+  .tab { padding: 6px 14px; border-radius: 20px; border: 1px solid var(--color-border-tertiary); font-size: 13px; cursor: pointer; background: var(--color-background-secondary); color: var(--color-text-secondary); transition: all .15s; }
+  .tab.active { background: var(--color-text-primary); color: var(--color-background-primary); border-color: transparent; }
+
+  .section { display: none; }
+  .section.active { display: block; }
+
+  .endpoint { border: 1px solid var(--color-border-tertiary); border-radius: 10px; margin-bottom: 10px; overflow: hidden; }
+  .ep-header { display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer; background: var(--color-background-secondary); user-select: none; }
+  .ep-header:hover { background: var(--color-background-tertiary); }
+  .method { font-size: 11px; font-weight: 500; padding: 3px 8px; border-radius: 4px; min-width: 44px; text-align: center; letter-spacing: .5px; }
+  .GET    { background: #E6F1FB; color: #0C447C; }
+  .POST   { background: #EAF3DE; color: #27500A; }
+  .PUT    { background: #FAEEDA; color: #633806; }
+  .DELETE { background: #FCEBEB; color: #791F1F; }
+  .WS     { background: #EEEDFE; color: #3C3489; }
+  .EVT    { background: #FBEAF0; color: #72243E; }
+
+  .ep-path { font-size: 13px; font-weight: 500; font-family: var(--font-mono); flex: 1; }
+  .ep-desc { font-size: 12px; color: var(--color-text-secondary); }
+  .ep-auth { font-size: 11px; padding: 2px 7px; border-radius: 10px; background: var(--color-background-tertiary); color: var(--color-text-tertiary); border: 1px solid var(--color-border-tertiary); }
+
+  .ep-body { display: none; padding: 14px; border-top: 1px solid var(--color-border-tertiary); }
+  .ep-body.open { display: block; }
+
+  .block-label { font-size: 11px; font-weight: 500; color: var(--color-text-tertiary); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 6px; margin-top: 12px; }
+  .block-label:first-child { margin-top: 0; }
+  pre { font-family: var(--font-mono); font-size: 12px; line-height: 1.6; background: var(--color-background-tertiary); border-radius: 8px; padding: 12px; overflow-x: auto; color: var(--color-text-secondary); white-space: pre-wrap; }
+
+  .pill-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  .pill { font-size: 11px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--color-border-tertiary); color: var(--color-text-secondary); }
+
+  .notes { font-size: 12px; color: var(--color-text-secondary); line-height: 1.6; background: var(--color-background-secondary); border-radius: 8px; padding: 10px 12px; }
+  .notes b { font-weight: 500; color: var(--color-text-primary); }
+
+  .base-info { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+  .base-chip { font-size: 12px; font-family: var(--font-mono); padding: 5px 12px; border-radius: 8px; background: var(--color-background-secondary); border: 1px solid var(--color-border-tertiary); color: var(--color-text-secondary); }
+  .caret { margin-left: auto; font-size: 14px; color: var(--color-text-tertiary); transition: transform .2s; }
+  .caret.open { transform: rotate(180deg); }
+</style>
+
+<div class="root">
+  <h2>Flot — API Contract</h2>
+  <p class="subtitle">Riconciliazione completa tra frontend e backend · April 2026</p>
+
+  <div class="base-info">
+    <span class="base-chip">REST: https://api.flot.app/{stage}</span>
+    <span class="base-chip">WS: wss://ws.flot.app/{stage}</span>
+    <span class="base-chip">Auth: Bearer &lt;Cognito JWT&gt;</span>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('airports')">Airports</div>
+    <div class="tab" onclick="switchTab('users')">Users</div>
+    <div class="tab" onclick="switchTab('trips')">Trips</div>
+    <div class="tab" onclick="switchTab('matches')">Matches</div>
+    <div class="tab" onclick="switchTab('payments')">Payments</div>
+    <div class="tab" onclick="switchTab('ws')">WebSocket</div>
+    <div class="tab" onclick="switchTab('events')">EventBridge</div>
+  </div>
+
+  <!-- AIRPORTS -->
+  <div class="section active" id="sec-airports">
+    <div class="endpoint">
+      <div class="ep-header" onclick="toggle(this)">
+        <span class="method GET">GET</span>
+        <span class="ep-path">/airports</span>
+        <span class="ep-desc">Lista aeroporti attivi</span>
+        <span class="ep-auth">JWT</span>
+        <span class="caret">▼</span>
+      </div>
+      <div class="ep-body">
+        <div class="block-label">Response 200</div>
+        <pre>[{
+  "code": "MXP",
+  "name": "Milano Malpensa",
+  "city": "Milano",
+  "country": "IT",
+  "currency": "EUR",
+  "baseFare": 12000,       // cents
+  "unlockFee": 99,         // cents
+  "terminals": [
+    { "code": "T1", "label": "Terminal 1" },
+    { "code": "T2", "label": "Terminal 2" }
+  ],
+  "zones": [
+    {
+      "code": "centro",
+      "label": "Centro",
+      "landmarks": ["Duomo", "Navigli"]
+    }
+    // ... altri zone
+  ],
+  "directionLabels": ["TO_MILAN", "FROM_MILAN"],
+  "searchTimeoutSec": 300,
+  "active": true
+}]</pre>
+        <div class="notes"><b>Note:</b> Usato dal frontend per popolare AirportPicker, TravelCheckin (terminal, zone, fares). Mai hardcodato nel client. Il campo <code>active</code> è un feature flag per airport.</div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-header" onclick="toggle(this)">
+        <span class="method GET">GET</span>
+        <span class="ep-path">/airports/:code</span>
+        <span class="ep-desc">Singolo aeroporto</span>
+        <span class="ep-auth">JWT</span>
+        <span class="caret">▼</span>
+      </div>
+      <div class="ep-body">
+        <div class="block-label">Path param</div>
+        <div class="pill-row"><span class="pill">code — IATA code, es. MXP</span></div>
+        <div class="block-label">Response 200</div>
+        <pre>{ /* stesso schema di GET /airports item */ }</pre>
+        <div class="block-label">Response 404</div>
+        <pre>{ "error": "Airport MXP not available" }</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- USERS -->
+  <div class="section" id="sec-users">
+    <div class="endpoint">
+      <div class="ep-header" onclick="toggle(this)">
+        <span class="method GET">GET</span>
+        <span class="ep-path">/users/me</span>
+        <span class="ep-desc">Profilo utente corrente</span>
+        <span class="ep-auth">JWT</span>
+        <span class="caret">▼</span>
+      </div>
+      <div class="ep-body">
+        <div class="block-label">Response 200</div>
+        <pre>{
+  "userId": "user_123",
+  "email": "alice@example.com",
+  "firstName": "Alice",
+  "lastName": "B.",
+  "photoUrl": "https://cdn.flot.app/photos/.../photo.webp",
+  "blurredPhotoUrl": "https://cdn.flot.app/photos/.../blurred.webp",
+  "isPro": false,
+  "verified": false,
+  "lang": "en",
+  "createdAt": "2026-04-20T10:00:00Z"
+}</pre>
+        <div class="notes"><b>Note:</b> <code>blurredPhotoUrl</code> è generato server-side (Gaussian σ=15). Non esporre mai <code>photoUrl</code> non-blurred prima dell'unlock.</div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-header" onclick="toggle(this)">
+        <span class="method PUT">PUT</span>
+        <span class="ep-path">/users/me</span>
+        <span class="ep-desc">Aggiorna profilo</span>
+        <span class="ep-auth">JWT</span>
+        <span class="caret">▼</span>
+      </div>
+      <div class="ep-body">
+        <div class="block-label">Request body</div>
+        <pre>{
+  "firstName": "Alice",
+  "lastName": "B.",
+  "lang": "en"           // "it" | "en"
+}</pre>
+        <div class="block-label">Response 200</div>
+        <pre>{ /* stesso schema di GET /users/me */ }</pre>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-header" onclick="toggle(this)">
+        <span class="method PUT">PUT</span>
+        <span class="ep-path">/users/me/photo</span>
+        <span class="ep-desc">Presigned URL upload foto</span>
+        <span class="ep-auth">JWT</span>
+        <span class="caret">▼</span>
+      </div>
+      <div class="ep-body">
+        <div class="block-label">Response 200</div>
+        <pre>{
+  "uploadUrl": "https://flot-media.s3.amazonaws.com/...",
+  "photoKey": "photos/user_123/original.webp",
+  "expiresIn": 300
+}</pre>
+        <div class="notes"><b>Flusso:</b> client PUT diretto a S3 → S3 event trigger Lambda → resize + blur + thumbnail → aggiorna DynamoDB (<code>photoUrl</code>, <code>blurredPhotoUrl</code>). Content-Type: image/webp.</div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-header" onclick="toggle(this)">
+        <span class="method POST">POST</span>
+        <span class="ep-path">/users/me/verify</span>
+        <span class="ep-desc">Avvia KYC Stripe Identity</span>
+        <span class="ep-auth">JWT</span>
+        <span class="caret">▼</span>
+      </div>
+      <div class="ep-body">
+        <div class="block-label">Request body</div>
+        <pre>{} // nessun body richiesto</pre>
+        <div class="block-label">Response 200</div>
+        <pre>{
+  "verificationSessionId": "vs_xxx",
+  "clientSecret": "vs_xxx_secret_yyy"
+}</pre>
+        <div class="notes">Il frontend usa <code>clientSecret</code> con Stripe Identity SDK. Dopo completamento, webhook Stripe aggiorna <code>verified: true</code> su DynamoDB.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TRIPS -->
+  <div class="section" id="sec-trips">
+    <div class="endpoint">
+      <div class="ep-header" onclick="toggle(this)">
+        <span class="method POST">POST</span>
+        <span class="ep-path">/trips</span>
+        <span class="ep-desc">Crea trip request</span>
+        <span class="ep-auth">JWT</span>
+        <span class="caret">▼</span>
+      </div>
+      <div class="ep-body">
+        <div class="block-label">Request body</div>
+        <pre>{
+  "airportCode": "MXP",          // REQUIRED — sempre inviare
+  "terminal": "T1",              // da airport.terminals
+  "direction": "TO_MILAN",       // da airport.directionLabels
+  "destination": "Milano Centrale",
+  "destZone": "nord",            // da airport.zones
+  "flightTime": "2026-04-24T14:30:00Z",
+  "paxCount": 1,
+  "luggage": 2
+}</pre>
+        <div class="block-label">Response 201</div>
+        <pre>{
+  "tripId": "trip_abc123",
+  "airportCode": "MXP",
+  "status": "searching",
+  "timeBucket": "2026-04-24T14:30:00Z",  // bucket 5-min
+  "createdAt": "2026-04-24T14:28:00Z"
+}</pre>
+        <div class="notes"><b>Post-create:</b> emette <code>trip.created</code> su EventBridge → matching engine. Il frontend naviga subito a <code>/search</code> e apre WebSocket.</div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-header" onclick="toggle(this)">
+        <span class="method GET">GET</span>
+        <span class="ep-path">/trips/:tripId</span>
+        <span class="ep-desc">Dettaglio trip</span>
+        <span class="ep-auth">JWT</span>
+        <span class="caret">▼</span>
+      </div>
+      <div class="ep-body">
+        <div class="block-label">Response 200</div>
+        <pre>{
+  "tripId": "trip_abc123",
+  "userId": "user_123",
+  "airportCode": "MXP",
+  "terminal": "T1",
+  "direction": "TO_MILAN",
+  "destZone": "nord",
+  "destination": "Milano Centrale",
+  "flightTime": "2026-04-24T14:30:00Z",
+  "timeBucket": "2026-04-24T14:30:00Z",
+  "paxCount": 1,
+  "luggage": 2,
+  "status": "searching",   // searching | matched | completed | cancelled
+  "createdAt": "2026-04-24T14:28:00Z"
+}</pre>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-header" onclick="toggle(this)">
+        <span class="method GET">GET</span>
+        <span class="ep-path">/trips/search</span>
+        <span class="ep-desc">Cerca trip compatibili (matching engine)</span>
+        <span class="ep-auth">JWT</span>
+        <span class="caret">▼</span>
+      </div>
+      <div class="ep-body">
+        <div class="notes">Endpoint interno — chiamato dal matching engine via EventBridge, non direttamente dal frontend. Esposto per test/admin.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MATCHES -->
+  <div class="section" id="sec-matches">
+    <div class="endpoint">
+      <div class="ep-header" onclick="toggle(this)">
+        <span class="method GET">GET</span>
+        <span class="ep-path">/matches/:matchId</span>
+        <span class="ep-desc">Dettaglio match (locked o unlocked)</span>
+        <span class="ep-auth">JWT</span>
+        <span class="caret">▼</span>
+      </div>
+      <div class="ep-body">
+        <div class="block-label">Response 200 — stato locked (pending)</div>
+        <pre>{
+  "matchId": "match_xyz",
+  "status": "pending",
+  "score": 0.85,
+  "savings": 60.00,
+  "partner": {
+    "firstName": "Marco",
+    "blurredPhotoUrl": "https://cdn.flot.app/photos/blurred/...",
+    "destination": "Milano Centrale",
+    "verified": true
+  },
+  "unlockedBy": []
+}</pre>
+        <div class="block-label">Response 200 — stato unlocked</div>
+        <pre>{
+  "matchId": "match_xyz",
+  "status": "unlocked",
+  "partner": {
+    "userId": "user_456",
+    "firstName": "Marco",
+    "lastName": "A.",
+    "photoUrl": "https://cdn.flot.app/photos/...",
+    "age": 28,
+    "city": "Milan, IT",
+    "languages": ["IT", "EN"],
+    "verified": true,
+    "rating": 4.9,
+    "totalTrips": 12,
+    "onTimeRate": 1.0
+  },
+  "meetingPoint": {
+    "label": "Exit 4 · Arrivals",
+    "description": "Ground floor · Taxi sharing stand · Look for the FLOT sign",
+    "walkMinutes": 8
+  },
+  "savings": 60.00,
+  "yourShare": 60.00,
+  "fullFare": 120.00
+}</pre>
+        <div class="notes"><b>Blur policy:</b> <code>blurredPhotoUrl</code> sempre da server-side. <code>photoUrl</code> non-blurred esposto solo quando <code>status === "unlocked"</code> e l'utente richiedente è in <code>unlockedBy</code>.</div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-header" onclick="toggle(this)">
+        <span class="method POST">POST</span>
+        <span class="ep-path">/trips/:tripId/unlock</span>
+        <span class="ep-desc">Avvia pagamento unlock match</span>
+        <span class="ep-auth">JWT</span>
+        <span class="caret">▼</span>
+      </div>
+      <div class="ep-body">
+        <div class="block-label">Request body</div>
+        <pre>{
+  "matchId": "match_xyz",
+  "fakeDoor": false          // true in VITE_FAKE_DOOR_MODE=true
+}</pre>
+        <div class="block-label">Response 200 — live mode</div>
+        <pre>{
+  "paymentIntentClientSecret": "pi_xxx_secret_yyy",
+  "amount": 99,               // cents, da airport.unlockFee
+  "currency": "eur"           // da airport.currency
+}</pre>
+        <div class="block-label">Response 200 — fake door mode</div>
+        <pre>{
+  "fakeDoor": true,
+  "message": "Intent recorded"
+}</pre>
+        <div class="notes"><b>Flusso live:</b> PaymentIntent con <code>capture_method: manual</code>. Capture avviene solo quando entrambi gli utenti hanno autorizzato. Se solo uno paga entro 24h → void. <b>Fake door:</b> nessun addebito reale, emette <code>payment.simulated</code> su EventBridge.</div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-header" onclick="toggle(this)">
+        <span class="method GET">GET</span>
+        <span class="ep-path">/matches/:matchId/chat</span>
+        <span class="ep-desc">Storico chat (paginato)</span>
+        <span class="ep-auth">JWT</span>
+        <span class="caret">▼</span>
+      </div>
+      <div class="ep-body">
+        <div class="block-label">Query params</div>
+        <div class="pill-row">
+          <span class="pill">limit — default 50</span>
+          <span class="pill">before — timestamp ISO8601 cursor</span>
+        </div>
+        <div class="block-label">Response 200</div>
+        <pre>{
+  "messages": [
+    {
+      "messageId": "msg_001",
+      "senderId": "user_123",
+      "text": "Ciao!",
+      "type": "text",          // "text" | "system"
+      "timestamp": "2026-04-24T14:35:00Z",
+      "read": true
+    }
+  ],
+  "nextCursor": "2026-04-24T14:34:00Z"  // null se non ci sono altri msg
+}</pre>
+        <div class="notes">TTL 48h dopo <code>trip.completed</code>. Chat disponibile solo dopo unlock (status === "unlocked").</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAYMENTS -->
+  <div class="section" id="sec-payments">
+    <div class="endpoint">
+      <div class="ep-header" onclick="toggle(this)">
+        <span class="method POST">POST</span>
+        <span class="ep-path">/subscriptions</span>
+        <span class="ep-desc">Crea abbonamento PRO</span>
+        <span class="ep-auth">JWT</span>
+        <span class="caret">▼</span>
+      </div>
+      <div class="ep-body">
+        <div class="block-label">Request body</div>
+        <pre>{
+  "plan": "pro",
+  "paymentMethodId": "pm_xxx"
+}</pre>
+        <div class="block-label">Response 201</div>
+        <pre>{
+  "subscriptionId": "sub_xxx",
+  "stripeSubscriptionId": "sub_stripe_xxx",
+  "plan": "pro",
+  "status": "active",
+  "currentPeriodEnd": "2026-05-24T00:00:00Z"
+}</pre>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-header" onclick="toggle(this)">
+        <span class="method DELETE">DELETE</span>
+        <span class="ep-path">/subscriptions/:subId</span>
+        <span class="ep-desc">Cancella abbonamento PRO</span>
+        <span class="ep-auth">JWT</span>
+        <span class="caret">▼</span>
+      </div>
+      <div class="ep-body">
+        <div class="block-label">Response 200</div>
+        <pre>{
+  "subscriptionId": "sub_xxx",
+  "status": "cancelled",
+  "cancelledAt": "2026-04-24T14:00:00Z"
+}</pre>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-header" onclick="toggle(this)">
+        <span class="method POST">POST</span>
+        <span class="ep-path">/webhooks/stripe</span>
+        <span class="ep-desc">Webhook Stripe (no auth)</span>
+        <span class="ep-auth">Stripe-Sig</span>
+        <span class="caret">▼</span>
+      </div>
+      <div class="ep-body">
+        <div class="block-label">Header richiesto</div>
+        <div class="pill-row"><span class="pill">Stripe-Signature: t=...,v1=...</span></div>
+        <div class="block-label">Eventi gestiti</div>
+        <pre>payment_intent.amount_capturable_updated → capture se entrambi autorizzati
+payment_intent.payment_failed             → void + notifica
+identity.verification_session.verified    → aggiorna verified=true
+customer.subscription.updated             → aggiorna isPro
+customer.subscription.deleted             → aggiorna isPro=false</pre>
+        <div class="block-label">Response 200</div>
+        <pre>{ "received": true }</pre>
+        <div class="notes"><b>Idempotency:</b> ogni evento verificato via <code>Stripe-Signature</code> e deduplicato tramite <code>eventId</code> in DynamoDB.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- WEBSOCKET -->
+  <div class="section" id="sec-ws">
+    <div class="endpoint">
+      <div class="ep-header" onclick="toggle(this)">
+        <span class="method WS">WS</span>
+        <span class="ep-path">$connect</span>
+        <span class="ep-desc">Apri connessione</span>
+        <span class="caret">▼</span>
+      </div>
+      <div class="ep-body">
+        <div class="block-label">URL</div>
+        <pre>wss://ws.flot.app/{stage}?token=&lt;jwt&gt;</pre>
+        <div class="notes">Lambda valida JWT → salva <code>CONN#{connId}</code> in DynamoDB (TTL 24h). Il frontend apre la WS al mount di <code>/search</code>.</div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-header" onclick="toggle(this)">
+        <span class="method WS">WS</span>
+        <span class="ep-path">Client → Server</span>
+        <span class="ep-desc">Messaggi inviati dal client</span>
+        <span class="caret">▼</span>
+      </div>
+      <div class="ep-body">
+        <pre>// Invia messaggio chat
+{ "action": "chat_message", "matchId": "match_xyz", "text": "Ciao!" }
+
+// Typing indicator
+{ "action": "typing", "matchId": "match_xyz" }</pre>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-header" onclick="toggle(this)">
+        <span class="method WS">WS</span>
+        <span class="ep-path">Server → Client</span>
+        <span class="ep-desc">Messaggi ricevuti dal client</span>
+        <span class="caret">▼</span>
+      </div>
+      <div class="ep-body">
+        <pre>// Match trovato → naviga a /match/:matchId
+{ "event": "match_found",
+  "data": { "matchId": "match_xyz", "partner": { "firstName": "Marco", "blurredPhotoUrl": "...", "verified": true } } }
+
+// Entrambi hanno pagato → naviga a /connection/:matchId
+{ "event": "match_unlocked",
+  "data": { "matchId": "match_xyz" } }
+
+// Messaggio chat in tempo reale
+{ "event": "chat_message",
+  "data": { "matchId": "match_xyz", "senderId": "user_456", "text": "Ciao!", "timestamp": "..." } }
+
+// Typing indicator
+{ "event": "typing",
+  "data": { "matchId": "match_xyz", "userId": "user_456" } }
+
+// Stato pagamento
+{ "event": "payment_status",
+  "data": { "matchId": "match_xyz", "status": "captured" } }
+
+// Aggiornamento status trip
+{ "event": "trip_update",
+  "data": { "tripId": "trip_abc123", "status": "matched" } }</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- EVENTBRIDGE -->
+  <div class="section" id="sec-events">
+    <div class="endpoint">
+      <div class="ep-header" onclick="toggle(this)">
+        <span class="method EVT">BUS</span>
+        <span class="ep-path">flot-events</span>
+        <span class="ep-desc">EventBridge custom bus</span>
+        <span class="caret">▼</span>
+      </div>
+      <div class="ep-body">
+        <div class="block-label">Eventi pubblicati e loro consumer</div>
+        <pre>user.created          → Welcome email (SES) + analytics
+trip.created          → Matching engine (search trips GSI1)
+match.found           → WebSocket push + push notification (SNS)
+payment.completed     → Unlock match + abilita chat
+payment.simulated     → Log fake door intent (FAKE_DOOR_MODE)
+payment.voided        → Notifica utente pagamento fallito
+trip.completed        → Richiedi review + schedule chat cleanup (48h TTL)
+subscription.active   → Aggiorna isPro=true su utente
+subscription.ended    → Aggiorna isPro=false su utente</pre>
+        <div class="notes"><b>Schema evento standard:</b>
+          <pre style="margin-top:8px">{
+  "source": "flot.backend",
+  "detail-type": "match.found",
+  "detail": {
+    "matchId": "match_xyz",
+    "airportCode": "MXP",
+    "userId1": "user_123",
+    "userId2": "user_456"
+  }
+}</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('sec-' + name).classList.add('active');
+}
+
+function toggle(header) {
+  const body = header.nextElementSibling;
+  const caret = header.querySelector('.caret');
+  const isOpen = body.classList.contains('open');
+  body.classList.toggle('open', !isOpen);
+  caret.classList.toggle('open', !isOpen);
+}
+</script>

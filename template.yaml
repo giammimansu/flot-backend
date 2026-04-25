@@ -1,0 +1,541 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Flot Backend — Real-time taxi-pooling serverless API.
+  Sprint 1: Foundation (DynamoDB, Cognito, User CRUD, Photo Upload, REST API)
+
+# ─────────────────────────────────────────────────────────────────────
+# Globals
+# ─────────────────────────────────────────────────────────────────────
+
+Globals:
+  Function:
+    Runtime: python3.13
+    Architectures:
+      - arm64
+    MemorySize: 256
+    Timeout: 10
+    Tracing: Active
+    Layers:
+      - !Ref SharedLayer
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref FlotTable
+        MEDIA_BUCKET: !Ref MediaBucket
+        STAGE: !Ref Stage
+        FAKE_DOOR_MODE: !Ref FakeDoorMode
+        POWERTOOLS_SERVICE_NAME: flot-backend
+        POWERTOOLS_METRICS_NAMESPACE: Flot
+        LOG_LEVEL: INFO
+
+# ─────────────────────────────────────────────────────────────────────
+# Parameters
+# ─────────────────────────────────────────────────────────────────────
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+
+  FakeDoorMode:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+
+  GoogleClientId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /flot/dev/google-client-id
+    NoEcho: true
+
+  GoogleClientSecret:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /flot/dev/google-client-secret
+    NoEcho: true
+
+# ─────────────────────────────────────────────────────────────────────
+# Resources
+# ─────────────────────────────────────────────────────────────────────
+
+Resources:
+
+  # ── Shared Lambda Layer ────────────────────────────────────────────
+
+  SharedLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub flot-shared-${Stage}
+      Description: Shared dependencies (Powertools, Pydantic, Stripe, Pillow)
+      ContentUri: src/layers/shared/
+      CompatibleRuntimes:
+        - python3.13
+      CompatibleArchitectures:
+        - arm64
+      RetentionPolicy: Delete
+    Metadata:
+      BuildMethod: python3.13
+      BuildArchitecture: arm64
+
+  # ── DynamoDB Single-Table ──────────────────────────────────────────
+
+  FlotTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    Properties:
+      TableName: !Sub Flot-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+        # GSI1: Matching (airport+timeBucket → destZone)
+        - AttributeName: gsi1pk
+          AttributeType: S
+        - AttributeName: gsi1sk
+          AttributeType: S
+        # GSI2: User trips (userId → createdAt)
+        - AttributeName: gsi2pk
+          AttributeType: S
+        - AttributeName: gsi2sk
+          AttributeType: S
+        # GSI3: User connections (userId → connId)
+        - AttributeName: gsi3pk
+          AttributeType: S
+        - AttributeName: gsi3sk
+          AttributeType: S
+        # GSI4: Stripe intent lookup
+        - AttributeName: gsi4pk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        # GSI1-TimeBucket: airportCode#timeBucket → destZone
+        - IndexName: GSI1-TimeBucket
+          KeySchema:
+            - AttributeName: gsi1pk
+              KeyType: HASH
+            - AttributeName: gsi1sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        # GSI2-UserTrips: userId → createdAt
+        - IndexName: GSI2-UserTrips
+          KeySchema:
+            - AttributeName: gsi2pk
+              KeyType: HASH
+            - AttributeName: gsi2sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        # GSI3-UserConn: userId → connId
+        - IndexName: GSI3-UserConn
+          KeySchema:
+            - AttributeName: gsi3pk
+              KeyType: HASH
+            - AttributeName: gsi3sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: KEYS_ONLY
+        # GSI4-StripeIntent: stripePaymentIntentId (pk only)
+        - IndexName: GSI4-StripeIntent
+          KeySchema:
+            - AttributeName: gsi4pk
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      Tags:
+        - Key: Project
+          Value: flot
+        - Key: Environment
+          Value: !Ref Stage
+
+  # ── Cognito User Pool ──────────────────────────────────────────────
+
+  FlotUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub flot-users-${Stage}
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      Schema:
+        - Name: email
+          Required: true
+          Mutable: true
+        - Name: name
+          Required: false
+          Mutable: true
+        - Name: picture
+          Required: false
+          Mutable: true
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: false
+          RequireLowercase: false
+          RequireNumbers: false
+          RequireSymbols: false
+      LambdaConfig:
+        PostConfirmation: !GetAtt PostConfirmationFunction.Arn
+      UserPoolTags:
+        Project: flot
+        Environment: !Ref Stage
+
+  # Permission for Cognito to invoke PostConfirmation Lambda
+  PostConfirmationPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref PostConfirmationFunction
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt FlotUserPool.Arn
+
+  # Google Identity Provider
+  GoogleIdentityProvider:
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    Properties:
+      UserPoolId: !Ref FlotUserPool
+      ProviderName: Google
+      ProviderType: Google
+      ProviderDetails:
+        client_id: !Ref GoogleClientId
+        client_secret: !Ref GoogleClientSecret
+        authorize_scopes: "openid email profile"
+      AttributeMapping:
+        email: email
+        name: name
+        picture: picture
+        username: sub
+
+  # User Pool Client
+  FlotUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn:
+      - GoogleIdentityProvider
+    Properties:
+      ClientName: !Sub flot-web-${Stage}
+      UserPoolId: !Ref FlotUserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_SRP_AUTH
+      SupportedIdentityProviders:
+        - Google
+      CallbackURLs:
+        - http://localhost:3000/auth/callback
+        - http://localhost:3001/auth/callback
+        - !Sub https://app.flot.it/auth/callback
+      LogoutURLs:
+        - http://localhost:3000
+        - http://localhost:3001
+        - https://app.flot.it
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - openid
+        - email
+        - profile
+      AllowedOAuthFlowsUserPoolClient: true
+
+  # Cognito Domain (Hosted UI)
+  FlotUserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub flot-auth-${Stage}
+      UserPoolId: !Ref FlotUserPool
+
+  # ── S3 Media Bucket ────────────────────────────────────────────────
+
+  MediaBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub flot-media-${Stage}-${AWS::AccountId}
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - "*"
+            AllowedMethods:
+              - PUT
+              - GET
+            AllowedOrigins:
+              - http://localhost:3000
+              - http://localhost:3001
+              - https://app.flot.it
+              - https://www.flot.it
+            MaxAge: 3600
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteTempFiles
+            Prefix: temp/
+            Status: Enabled
+            ExpirationInDays: 7
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Project
+          Value: flot
+
+  # S3 Bucket Policy for CloudFront OAC
+  MediaBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref MediaBucket
+      PolicyDocument:
+        Statement:
+          - Sid: AllowCloudFrontOAC
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub ${MediaBucket.Arn}/*
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${MediaCDN}
+
+  # ── CloudFront CDN ─────────────────────────────────────────────────
+
+  MediaCDNOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub flot-media-oac-${Stage}
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  MediaCDN:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+          - Id: S3MediaOrigin
+            DomainName: !GetAtt MediaBucket.RegionalDomainName
+            OriginAccessControlId: !Ref MediaCDNOAC
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+        Enabled: true
+        DefaultCacheBehavior:
+          TargetOriginId: S3MediaOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized
+          AllowedMethods:
+            - GET
+            - HEAD
+          CachedMethods:
+            - GET
+            - HEAD
+          Compress: true
+        HttpVersion: http2and3
+        Comment: !Sub Flot Media CDN (${Stage})
+      Tags:
+        - Key: Project
+          Value: flot
+
+  # ── REST API Gateway ───────────────────────────────────────────────
+
+  FlotApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub flot-api-${Stage}
+      StageName: !Ref Stage
+      TracingEnabled: true
+      Cors:
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+        MaxAge: "'86400'"
+      Auth:
+        DefaultAuthorizer: FlotCognitoAuthorizer
+        Authorizers:
+          FlotCognitoAuthorizer:
+            UserPoolArn: !GetAtt FlotUserPool.Arn
+        AddDefaultAuthorizerToCorsPreflight: false
+
+  # ── Lambda Functions ───────────────────────────────────────────────
+
+  # Auth: PostConfirmation (Cognito trigger)
+  PostConfirmationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-post-confirmation-${Stage}
+      Handler: handlers.auth.post_confirmation.handler
+      CodeUri: src/
+      Description: Cognito PostConfirmation — creates user profile in DynamoDB
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+
+  # Airports: List (public)
+  ListAirportsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-list-airports-${Stage}
+      Handler: handlers.airports.list_airports.handler
+      CodeUri: src/
+      Description: GET /airports — list all active airports
+      Events:
+        ListAirports:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FlotApi
+            Path: /airports
+            Method: GET
+            Auth:
+              Authorizer: NONE
+
+  # Airports: Get (public)
+  GetAirportFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-get-airport-${Stage}
+      Handler: handlers.airports.get_airport.handler
+      CodeUri: src/
+      Description: GET /airports/{code} — get single airport config
+      Events:
+        GetAirport:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FlotApi
+            Path: /airports/{code}
+            Method: GET
+            Auth:
+              Authorizer: NONE
+
+  # Users: Get Profile (auth required)
+  GetProfileFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-get-profile-${Stage}
+      Handler: handlers.users.get_profile.handler
+      CodeUri: src/
+      Description: GET /users/me — get current user profile
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref FlotTable
+      Events:
+        GetProfile:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FlotApi
+            Path: /users/me
+            Method: GET
+
+  # Users: Update Profile (auth required)
+  UpdateProfileFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-update-profile-${Stage}
+      Handler: handlers.users.update_profile.handler
+      CodeUri: src/
+      Description: PUT /users/me — update user profile
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+      Events:
+        UpdateProfile:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FlotApi
+            Path: /users/me
+            Method: PUT
+
+  # Users: Get Photo Upload URL (auth required)
+  GetPhotoUploadUrlFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-get-photo-upload-url-${Stage}
+      Handler: handlers.users.get_photo_upload_url.handler
+      CodeUri: src/
+      Description: PUT /users/me/photo — get presigned S3 upload URL
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref MediaBucket
+      Events:
+        GetPhotoUploadUrl:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FlotApi
+            Path: /users/me/photo
+            Method: PUT
+
+  # Users: Process Photo (S3 trigger — notification configured via post-deploy script)
+  ProcessPhotoFunction:
+    Type: AWS::Serverless::Function
+    DependsOn:
+      - MediaCDN
+    Properties:
+      FunctionName: !Sub flot-process-photo-${Stage}
+      Handler: handlers.users.process_photo.handler
+      CodeUri: src/
+      Description: S3 trigger — resize, thumbnail, blur uploaded photos
+      MemorySize: 1024
+      Timeout: 30
+      Environment:
+        Variables:
+          CDN_DOMAIN: !GetAtt MediaCDN.DomainName
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref MediaBucket
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+
+  # Permission for S3 to invoke ProcessPhoto
+  ProcessPhotoInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ProcessPhotoFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !GetAtt MediaBucket.Arn
+      SourceAccount: !Ref AWS::AccountId
+
+# ─────────────────────────────────────────────────────────────────────
+# Outputs
+# ─────────────────────────────────────────────────────────────────────
+
+Outputs:
+  ApiUrl:
+    Description: REST API Gateway URL
+    Value: !Sub https://${FlotApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}
+
+  TableName:
+    Description: DynamoDB table name
+    Value: !Ref FlotTable
+
+  UserPoolId:
+    Description: Cognito User Pool ID
+    Value: !Ref FlotUserPool
+
+  UserPoolClientId:
+    Description: Cognito User Pool Client ID
+    Value: !Ref FlotUserPoolClient
+
+  CognitoDomain:
+    Description: Cognito Hosted UI domain
+    Value: !Sub https://flot-auth-${Stage}.auth.${AWS::Region}.amazoncognito.com
+
+  MediaBucketName:
+    Description: S3 media bucket name
+    Value: !Ref MediaBucket
+
+  CDNDomain:
+    Description: CloudFront distribution domain
+    Value: !GetAtt MediaCDN.DomainName

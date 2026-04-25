@@ -1,0 +1,13 @@
+{
+  "httpMethod": "GET",
+  "path": "/airports",
+  "pathParameters": null,
+  "queryStringParameters": null,
+  "headers": {
+    "Content-Type": "application/json",
+    "origin": "http://localhost:3000"
+  },
+  "body": null,
+  "requestContext": {},
+  "isBase64Encoded": false
+}
