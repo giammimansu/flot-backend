@@ -44,6 +44,8 @@ class Direction(str, Enum):
 class TripStatus(str, Enum):
     SCHEDULED = "scheduled"
     SEARCHING = "searching"
+    TENTATIVE_MATCH = "tentative_match"   # v4 — shadow pool
+    TRACKING_PENDING = "tracking_pending"  # v4 — ETA not yet resolved
     MATCHED = "matched"
     UNLOCKED = "unlocked"
     ACTIVE = "active"
@@ -119,16 +121,14 @@ class CreateTripRequest(BaseModel):
     destLat: float = Field(..., ge=-90, le=90)  # noqa: N815
     destLng: float = Field(..., ge=-180, le=180)  # noqa: N815
     destPlaceId: str  # noqa: N815
+    destZone: str | None = None  # noqa: N815
     luggage: int = Field(default=0, ge=0, le=6)
     paxCount: int = Field(default=1, ge=1, le=4)  # noqa: N815
     mode: TripMode
-    flightTime: str  # noqa: N815
-
-    @model_validator(mode="after")
-    def validate_mode_fields(self) -> CreateTripRequest:
-        if self.mode == TripMode.SCHEDULED and not self.flightTime:
-            raise ValueError("flightTime is required for mode=scheduled")
-        return self
+    # v4 — flightNumber+flightDate required; flightTime auto-resolved by tracker
+    flightNumber: str = Field(..., min_length=2, max_length=10)  # noqa: N815
+    flightDate: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")  # noqa: N815
+    flightTime: str | None = None  # noqa: N815 — resolved by tracker, not from user
 
 class TripCancel(BaseModel):
     model_config = ConfigDict(extra="forbid")

@@ -867,4 +867,111 @@ Non scrivere codice finché non ti confermo il piano.
 
 ---
 
+## Sprint Plan — v4 Development
+
+> Stato verificato al 2026-05-03 analizzando il codebase reale. Nessuna feature v4 trovata in `src/` → tutti gli sprint sono **TODO**.
+
+---
+
+### Sprint 1 — Foundation: TripCreate v4 + Flight Tracker Client `[ TODO ]`
+
+**Goal:** `flightNumber` + `flightDate` obbligatori, `flightTime` auto-risolto da API tracker al momento della `POST /trips`.
+
+| # | Componente | File | Test |
+|---|-----------|------|------|
+| 1.1 | Model validazione | `src/lib/validation.py` — aggiungi `flightNumber` (obbligatorio), `flightDate` (obbligatorio), `flightTime` (opzionale) a `TripCreate` | `tests/unit/test_validation.py` — trip senza `flightNumber` ritorna 422 |
+| 1.2 | Flight Tracker client | `src/lib/flight_tracker.py` — `fetch_flight_eta(flightNumber, flightDate)` con timeout 2s, circuit breaker 3 fail → 30 min blackout | `tests/unit/test_flight_tracker.py` — mock API timeout → fallback ETA, circuit breaker si attiva |
+| 1.3 | Create trip handler | `src/handlers/trips/create_trip.py` — chiama `fetch_flight_eta`, risolve `flightTime`, salva `flightEtaUpdatedAt`, stato `tracking_pending` se fallback | `tests/unit/test_create_trip.py` — `flightTime` nel DB = ETA dal tracker, non dal body |
+| 1.4 | AirportConfig | `src/lib/airports.py` — aggiungi `max_detour_minutes`, `flight_tracker_provider` a `AirportConfig` | `tests/unit/test_airports.py` — MXP ha `max_detour_minutes=15` |
+
+**Done when:** `POST /trips` con `flightNumber` persiste ETA reale; senza `flightNumber` ritorna 422.
+
+---
+
+### Sprint 2 — Matching Core: Soglie Dinamiche + Corridoio Direzionale `[ TODO ]`
+
+**Goal:** Sostituire soglia fissa e raggio radiale con `compute_dynamic_threshold` + `estimate_detour_minutes`.
+
+| # | Componente | File | Test |
+|---|-----------|------|------|
+| 2.1 | Dynamic threshold | `src/lib/matching.py` — `compute_dynamic_threshold(base, flight_time_a, flight_time_b, now)` | `test_dynamic_threshold_7days` → 0.70; `test_dynamic_threshold_1hour` → ≤0.25 |
+| 2.2 | Detour estimate | `src/lib/matching.py` — `estimate_detour_minutes(trip_a, trip_b, airport)` haversine MVP senza routing API | `test_detour_linear_route` → <5 min; `test_detour_penalty_v_route` → score <0.50 |
+| 2.3 | Detour penalty | `src/lib/matching.py` — `apply_detour_penalty(score, detour_min, max_detour_min)` | `test_detour_penalty_v_route` — score penalizzato correttamente |
+| 2.4 | Build compat matrix | `src/handlers/matching/matchmaker.py` — `build_compatibility_matrix` usa dynamic threshold + detour filter | `tests/unit/test_matchmaker.py` — coppia con detour>max esclusa dalla matrix |
+
+**Done when:** Il matchmaker non produce più match con deviazione > `max_detour_minutes`; la soglia varia per ore al volo.
+
+---
+
+### Sprint 3 — DynamoDB: Schema v4 + GSI6 `[ TODO ]`
+
+**Goal:** Entità `TentativeMatch` + GSI6 + nuovi campi Trip pronti per shadow pool.
+
+| # | Componente | File | Test |
+|---|-----------|------|------|
+| 3.1 | SAM template | `template.yaml` — aggiungi `gsi6pk` (AttributeDefinition), `lockAt` (SK), GSI6-TentativeMatch; aggiungi `tentativeMatchId` ai campi Trip | Deploy staging e verificare table describe |
+| 3.2 | DynamoDB helpers | `src/lib/dynamo.py` — `create_tentative_match`, `dissolve_tentative_match`, `query_tentative_matches_to_lock`, `get_tentative_match_between` | `tests/unit/test_dynamo.py` — CRUD tentative match con mock DynamoDB |
+| 3.3 | Trip status enum | `src/lib/validation.py` (o `models.py`) — aggiungi stato `tentative_match`, `tracking_pending` | Unit test status transition |
+
+**Done when:** `sam deploy` staging senza errori schema; `create_tentative_match` persiste con GSI6 corretto.
+
+---
+
+### Sprint 4 — Shadow Pool: Matchmaker v4 `[ TODO ]`
+
+**Goal:** Matchmaker crea TentativeMatch (non match definitivi); `process_lock_window` converte a definitivi a T-3h.
+
+| # | Componente | File | Test |
+|---|-----------|------|------|
+| 4.1 | optimize_pool | `src/handlers/matching/matchmaker.py` — `optimize_pool`: usa `build_compatibility_matrix` + `find_optimal_assignments`; gestisce dissolve/replace tentative match | `test_shadow_pool_rematch` — trip_b si accoppia con trip_c (score maggiore) non con trip_a |
+| 4.2 | process_lock_window | `src/handlers/matching/matchmaker.py` — `process_lock_window`: query GSI6 con `lockAt < now`, crea match definitivo, emette `match.found` | `tests/unit/test_matchmaker.py` — TentativeMatch con lockAt passato → match definitivo |
+| 4.3 | Idempotenza | `src/handlers/matching/matchmaker.py` — `transact_write` con condition expression su stato trip | Test: due esecuzioni parallele non duplicano match |
+
+**Done when:** Matchmaker su pool di test crea TentativeMatch; run successivo a T-3h li promuove a match definitivi e notifica utenti.
+
+---
+
+### Sprint 5 — Flight Tracker Lambda + Event Handlers `[ TODO ]`
+
+**Goal:** Polling ETA ogni 15 min; eventi `flight.delayed` → invalida TentativeMatch incompatibili.
+
+| # | Componente | File | Test |
+|---|-----------|------|------|
+| 5.1 | FlightTrackerFunction | `src/handlers/flights/flight_tracker.py` — handler EventBridge Scheduler, query GSI5 finestra 12h, chiama `fetch_flight_eta`, aggiorna `flightTime`+`gsi1pk`, emette `flight.delayed` | `tests/unit/test_flight_tracker.py` — delta >10 min → aggiornamento DynamoDB + evento emesso |
+| 5.2 | on_flight_delayed | `src/handlers/events/on_flight_delayed.py` — rivaluta compatibilità temporale; se rotta → `invalidate_tentative_match` + `match.invalidated` | Test: ritardo 90 min su trip con finestra ±30 → match invalidato |
+| 5.3 | on_match_invalidated | `src/handlers/events/on_match_invalidated.py` — notifica utente annullamento match definitivo | Test: push notification inviata a entrambi userId |
+| 5.4 | SAM template | `template.yaml` — aggiungi `FlightTrackerFunction` (ScheduleV2 15 min), `OnFlightDelayedFunction`, `OnMatchLockedFunction`, `OnMatchInvalidatedFunction` con EventBridge rules | Integration test: evento `flight.delayed` → Lambda invocata |
+
+**Done when:** Volo ritardato di 30+ min su TentativeMatch → match dissolto e trip tornano in pool.
+
+---
+
+### Sprint 6 — Hardening, Osservabilità, Deploy MVP `[ TODO ]`
+
+**Goal:** Circuit breaker flight tracker robusto; logging strutturato; deploy MXP production.
+
+| # | Componente | File | Test |
+|---|-----------|------|------|
+| 6.1 | Circuit breaker | `src/lib/flight_tracker.py` — stato in-memory (o SSM) con contatore fail, blackout 30 min dopo 3 fail consecutivi | Test: 3 API timeout → circuit aperto → 4a chiamata skippata senza API call |
+| 6.2 | Logging | tutti gli handler v4 — `dist_km`, `detour_min`, `score` arrotondati a 2 decimali nei log strutturati | Code review manuale |
+| 6.3 | Env vars | `template.yaml` + `.env.example` — `FLIGHT_TRACKER_PROVIDER`, `FLIGHT_TRACKER_API_KEY` (SSM), `LOCK_HOURS_BEFORE=3`, `TRACKING_WINDOW_HOURS=12` | Deploy staging + smoke test `POST /trips` con volo reale AZ1234 |
+| 6.4 | Integration test E2E | `tests/integration/` — crea trip → verifica ETA risolta → matchmaker → TentativeMatch → lock → notifica | Pipeline CI completa verde |
+
+**Done when:** Deploy production MXP; `POST /trips` con volo reale risolve ETA; TentativeMatch → lock → notifica in <5 min dopo T-3h.
+
+---
+
+### Riepilogo Sprint
+
+| Sprint | Contenuto | Stato |
+|--------|-----------|-------|
+| S1 | TripCreate v4 + Flight Tracker client | `[ TODO ]` |
+| S2 | Dynamic threshold + Detour penalty | `[ TODO ]` |
+| S3 | DynamoDB schema v4 + GSI6 | `[ TODO ]` |
+| S4 | Shadow Pool + Matchmaker v4 | `[ TODO ]` |
+| S5 | FlightTrackerFunction + Event handlers | `[ TODO ]` |
+| S6 | Hardening + Deploy MVP | `[ TODO ]` |
+
+---
+
 *Flot Backend v4 — Elastic & Predictive — Aprile 2026*

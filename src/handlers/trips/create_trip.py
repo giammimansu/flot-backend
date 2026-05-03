@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from lib import dynamo
 from lib.airports import get_airport
 from lib.eventbridge import put_event
+from lib.flight_tracker import FlightTrackerError, fetch_flight_eta
 from lib.http import AppError, app_handler, created
 from lib.matching import get_time_bucket
 from lib.validation import CreateTripRequest, TripMode
@@ -59,18 +60,30 @@ def handler(event: dict, context) -> dict:
 
     destZone = req.destZone or coords_to_zone(airport.code, req.destLat, req.destLng)
 
-    flight_dt = datetime.fromisoformat(req.flightTime.replace("Z", "+00:00"))
-    
+    # v4 — resolve flightTime from tracker; fallback to noon UTC if API unavailable
+    tracking_pending = False
+    try:
+        flight_dt = fetch_flight_eta(req.flightNumber, req.flightDate)
+        resolved_flight_time = flight_dt.isoformat().replace("+00:00", "Z")
+        logger.info("flight_eta_resolved", flightNumber=req.flightNumber, eta=resolved_flight_time)
+    except FlightTrackerError as exc:
+        logger.warning("flight_tracker_unavailable", flightNumber=req.flightNumber, reason=str(exc))
+        resolved_flight_time = f"{req.flightDate}T12:00:00Z"
+        flight_dt = datetime.fromisoformat(resolved_flight_time.replace("Z", "+00:00"))
+        tracking_pending = True
+
     if req.mode == TripMode.LIVE:
         expires_at = now + timedelta(seconds=airport.search_timeout_sec)
-        slot_bucket = get_time_bucket(req.flightTime)
-        gsi1pk = f"{airport.code}#{slot_bucket}"
-        event_name = "trip.created"
     else:
         expires_at = flight_dt + timedelta(hours=2)
-        slot_bucket = get_time_bucket(req.flightTime)
-        gsi1pk = f"{airport.code}#{slot_bucket}"
-        event_name = "trip.created"
+
+    slot_bucket = get_time_bucket(resolved_flight_time)
+    gsi1pk = f"{airport.code}#{slot_bucket}"
+
+    if req.mode == TripMode.SCHEDULED:
+        trip_status = "tracking_pending" if tracking_pending else "scheduled"
+    else:
+        trip_status = "searching"
 
     trip_item = {
         "pk": f"TRIP#{trip_id}",
@@ -86,11 +99,15 @@ def handler(event: dict, context) -> dict:
         "destPlaceId": req.destPlaceId,
         "destZone": destZone,
         "mode": req.mode.value,
-        "flightTime": req.flightTime,
+        "flightNumber": req.flightNumber,
+        "flightDate": req.flightDate,
+        "flightTime": resolved_flight_time,
+        "flightEtaUpdatedAt": now_iso,
         "timeBucket": slot_bucket,
         "luggage": req.luggage,
         "paxCount": req.paxCount,
-        "status": "scheduled" if req.mode == TripMode.SCHEDULED else "searching",
+        "status": trip_status,
+        "tentativeMatchId": None,
         "lang": user_item.get("lang"),
         "verified": user_item.get("verified", False),
         "createdAt": now_iso,
@@ -99,21 +116,17 @@ def handler(event: dict, context) -> dict:
         "gsi1sk": now_iso,
         "gsi2pk": f"USER#{user_id}",
         "gsi2sk": now_iso,
-        "gsi5pk": f"{airport.code}#{'scheduled' if req.mode == TripMode.SCHEDULED else 'searching'}",
-        "gsi5sk": req.flightTime,
+        "gsi5pk": f"{airport.code}#{trip_status}",
+        "gsi5sk": resolved_flight_time,
     }
 
     dynamo.put_item(trip_item)
-    
-    event_payload = {"tripId": trip_id, "mode": req.mode.value}
-    put_event(event_name, event_payload)
+    put_event("trip.created", {"tripId": trip_id, "mode": req.mode.value})
 
-    # Attempt immediate match
-    match_payload: dict | None = None
     return created(
         {
             "tripId": trip_id,
-            "status": "scheduled" if req.mode == TripMode.SCHEDULED else "searching",
+            "status": trip_status,
             "airportCode": airport.code,
             "terminal": req.terminal,
             "direction": req.direction,
@@ -123,8 +136,10 @@ def handler(event: dict, context) -> dict:
             "destPlaceId": req.destPlaceId,
             "destZone": destZone,
             "mode": req.mode.value,
-            "flightTime": req.flightTime,
-            "createdAt": trip_item["createdAt"]
+            "flightNumber": req.flightNumber,
+            "flightDate": req.flightDate,
+            "flightTime": resolved_flight_time,
+            "createdAt": trip_item["createdAt"],
         },
         origin,
     )

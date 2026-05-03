@@ -66,6 +66,10 @@ class AirportConfig:
     match_threshold: float = 0.25
     active: bool = True
 
+    # v4 — Elastic & Predictive
+    max_detour_minutes: int = 15
+    flight_tracker_provider: str = "mock"  # "aviation_edge" | "flightaware" | "mock"
+
 
 # ─────────────────────────────────────────────────────────────────────
 # Airport Registry
@@ -104,6 +108,8 @@ AIRPORTS: dict[str, AirportConfig] = {
         scheduled_advance_days=7,
         match_threshold=0.25,
         active=True,
+        max_detour_minutes=15,
+        flight_tracker_provider="aviation_edge",
     ),
     # ── Future airports (inactive until launch) ──────────────────────
     # "FCO": AirportConfig(code="FCO", name="Roma Fiumicino", city="Roma", ...),
