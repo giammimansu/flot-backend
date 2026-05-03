@@ -209,6 +209,29 @@ def compute_match_score(trip_a: dict, trip_b: dict, user_a: dict, user_b: dict, 
     )
     return final
 
+# ── v4 — Time compatibility check ────────────────────────────────────
+
+def check_time_compatibility(
+    trip_a: dict,
+    trip_b: dict,
+    airport: AirportConfig,
+    mode: str = "scheduled",
+) -> bool:
+    """
+    Returns True if both trips' flightTimes are within the match window.
+    Used by on_flight_delayed to decide if a delay breaks an existing match.
+    """
+    ft_a = trip_a.get("flightTime")
+    ft_b = trip_b.get("flightTime")
+    if not ft_a or not ft_b:
+        return False
+    dt_a = datetime.fromisoformat(ft_a.replace("Z", "+00:00"))
+    dt_b = datetime.fromisoformat(ft_b.replace("Z", "+00:00"))
+    delta_min = abs((dt_a - dt_b).total_seconds()) / 60
+    window = airport.scheduled_match_window_min if mode == "scheduled" else airport.max_wait_minutes
+    return delta_min <= window
+
+
 # ── Find best match (v3 greedy — replaced by build_compatibility_matrix in v4) ──
 
 def find_best_match(query_trip: dict, query_user: dict) -> "MatchResult | None":

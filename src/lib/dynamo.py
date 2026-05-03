@@ -6,6 +6,8 @@ All DynamoDB operations go through this module for consistent error handling.
 from __future__ import annotations
 
 import os
+import uuid
+from datetime import datetime, timezone
 from typing import Any
 from decimal import Decimal
 
@@ -93,10 +95,11 @@ def query_gsi(
     sk_name: str | None = None,
     sk_value: str | None = None,
     sk_begins_with: str | None = None,
+    sk_lte: str | None = None,
     limit: int | None = None,
     scan_forward: bool = True,
 ) -> list[dict[str, Any]]:
-    """Query a GSI. Supports exact sk match or begins_with."""
+    """Query a GSI. Supports exact sk match, begins_with, or sk <= value."""
     key_condition = "#pk = :pkval"
     expression_names: dict[str, str] = {"#pk": pk_name}
     expression_values: dict[str, Any] = {":pkval": pk_value}
@@ -109,6 +112,10 @@ def query_gsi(
         key_condition += " AND begins_with(#sk, :skprefix)"
         expression_names["#sk"] = sk_name
         expression_values[":skprefix"] = sk_begins_with
+    elif sk_name and sk_lte:
+        key_condition += " AND #sk <= :sklte"
+        expression_names["#sk"] = sk_name
+        expression_values[":sklte"] = sk_lte
 
     kwargs: dict[str, Any] = {
         "IndexName": index_name,
@@ -173,3 +180,134 @@ def delete_item(pk: str, sk: str) -> None:
     except ClientError as e:
         logger.error("DynamoDB delete_item failed", extra={"error": str(e), "pk": pk, "sk": sk})
         raise
+
+
+# ── v4 — TentativeMatch helpers ───────────────────────────────────────
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def create_tentative_match(
+    trip_a: dict[str, Any],
+    trip_b: dict[str, Any],
+    score: float,
+    dist_km: float,
+    detour_min: float,
+    lock_at: datetime,
+    airport_code: str,
+) -> dict[str, Any]:
+    """
+    Persists a TentativeMatch and updates both trips' status + tentativeMatchId atomically.
+    Emits no notifications — TentativeMatch is silent per v4 spec.
+    """
+    match_id = str(uuid.uuid4())
+    now = _now_iso()
+    lock_at_iso = lock_at.isoformat().replace("+00:00", "Z")
+
+    item: dict[str, Any] = {
+        "pk": f"TENTATIVE_MATCH#{match_id}",
+        "sk": "META",
+        "matchId": match_id,
+        "tripId1": trip_a["tripId"],
+        "tripId2": trip_b["tripId"],
+        "userId1": trip_a["userId"],
+        "userId2": trip_b["userId"],
+        "airportCode": airport_code,
+        "score": round(score, 3),
+        "distKm": round(dist_km, 2),
+        "detourMinutes": round(detour_min, 1),
+        "status": "tentative_match",
+        "lockAt": lock_at_iso,
+        "gsi6pk": f"{airport_code}#tentative",
+        "createdAt": now,
+    }
+
+    updated_a = {**trip_a, "status": "tentative_match", "tentativeMatchId": match_id, "gsi5pk": f"{airport_code}#tentative_match"}
+    updated_b = {**trip_b, "status": "tentative_match", "tentativeMatchId": match_id, "gsi5pk": f"{airport_code}#tentative_match"}
+
+    transact_write([
+        {"Put": {"Item": to_ddb(item), "TableName": os.environ["TABLE_NAME"]}},
+        {"Put": {
+            "Item": to_ddb(updated_a),
+            "TableName": os.environ["TABLE_NAME"],
+            "ConditionExpression": "attribute_exists(pk)",
+        }},
+        {"Put": {
+            "Item": to_ddb(updated_b),
+            "TableName": os.environ["TABLE_NAME"],
+            "ConditionExpression": "attribute_exists(pk)",
+        }},
+    ])
+
+    logger.info(
+        "tentative_match_created",
+        matchId=match_id,
+        tripId1=trip_a["tripId"],
+        tripId2=trip_b["tripId"],
+        score=round(score, 3),
+        distKm=round(dist_km, 2),
+        detourMin=round(detour_min, 1),
+        lockAt=lock_at_iso,
+    )
+    return item
+
+
+def dissolve_tentative_match(
+    match_id: str,
+    trip_a: dict[str, Any],
+    trip_b: dict[str, Any],
+) -> None:
+    """
+    Deletes TentativeMatch and returns both trips to 'scheduled' status atomically.
+    Used when a better match is found or a flight delay breaks compatibility.
+    """
+    airport_code = trip_a.get("airportCode", "")
+    reset_a = {**trip_a, "status": "scheduled", "tentativeMatchId": None, "gsi5pk": f"{airport_code}#scheduled"}
+    reset_b = {**trip_b, "status": "scheduled", "tentativeMatchId": None, "gsi5pk": f"{airport_code}#scheduled"}
+
+    transact_write([
+        {"Delete": {
+            "Key": to_ddb({"pk": f"TENTATIVE_MATCH#{match_id}", "sk": "META"}),
+            "TableName": os.environ["TABLE_NAME"],
+        }},
+        {"Put": {"Item": to_ddb(reset_a), "TableName": os.environ["TABLE_NAME"]}},
+        {"Put": {"Item": to_ddb(reset_b), "TableName": os.environ["TABLE_NAME"]}},
+    ])
+
+    logger.info("tentative_match_dissolved", matchId=match_id)
+
+
+def query_tentative_matches_to_lock(airport_code: str, now: datetime) -> list[dict[str, Any]]:
+    """
+    Returns all TentativeMatch items for the airport whose lockAt <= now.
+    Uses GSI6 sorted by lockAt — efficient O(k) where k = matches to lock.
+    """
+    now_iso = now.isoformat().replace("+00:00", "Z")
+    return query_gsi(
+        index_name="GSI6-TentativeMatch",
+        pk_name="gsi6pk",
+        pk_value=f"{airport_code}#tentative",
+        sk_name="lockAt",
+        sk_lte=now_iso,
+    )
+
+
+def get_tentative_match_between(trip_id_a: str, trip_id_b: str) -> dict[str, Any] | None:
+    """
+    Returns the active TentativeMatch linking trip_a and trip_b, or None.
+    Reads tentativeMatchId from either trip to avoid a scan.
+    """
+    trip_a = get_item(f"TRIP#{trip_id_a}", "META")
+    if not trip_a:
+        return None
+    match_id = trip_a.get("tentativeMatchId")
+    if not match_id:
+        return None
+    tm = get_item(f"TENTATIVE_MATCH#{match_id}", "META")
+    if not tm:
+        return None
+    # Verify it actually links both trips
+    if {tm.get("tripId1"), tm.get("tripId2")} == {trip_id_a, trip_id_b}:
+        return tm
+    return None

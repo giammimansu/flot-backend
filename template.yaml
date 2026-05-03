@@ -149,6 +149,11 @@ Resources:
           AttributeType: S
         - AttributeName: gsi5sk
           AttributeType: S
+        # GSI6: TentativeMatch lock window (airportCode#tentative -> lockAt)
+        - AttributeName: gsi6pk
+          AttributeType: S
+        - AttributeName: lockAt
+          AttributeType: S
       KeySchema:
         - AttributeName: pk
           KeyType: HASH
@@ -205,6 +210,16 @@ Resources:
             - AttributeName: gsi5pk
               KeyType: HASH
             - AttributeName: gsi5sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+        # GSI6-TentativeMatch: airportCode#tentative → lockAt
+        - IndexName: GSI6-TentativeMatch
+          KeySchema:
+            - AttributeName: gsi6pk
+              KeyType: HASH
+            - AttributeName: lockAt
               KeyType: RANGE
           Projection:
             ProjectionType: ALL
@@ -801,6 +816,89 @@ Resources:
                 - flot-backend
               detail-type:
                 - trip.expired
+
+  # ── v4 — Flight Tracker (polls every 15 min) ──────────────────────
+
+  FlightTrackerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-flight-tracker-${Stage}
+      Handler: handlers.flights.flight_tracker.handler
+      CodeUri: src/
+      Description: v4 — polls flight ETAs every 15 min, emits flight.delayed
+      MemorySize: 256
+      Timeout: 30
+      Environment:
+        Variables:
+          FLIGHT_TRACKER_PROVIDER: !Sub "{{resolve:ssm:/flot/${Stage}/flight-tracker-provider}}"
+          FLIGHT_TRACKER_API_KEY: !Sub "{{resolve:ssm:/flot/${Stage}/flight-tracker-key}}"
+          TRACKING_WINDOW_HOURS: "12"
+          EVENT_BUS_NAME: !Ref FlotEventBus
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref FlotEventBus
+      Events:
+        ScheduleEvent:
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpression: rate(15 minutes)
+            State: ENABLED
+
+  # ── v4 — flight.delayed / flight.advanced handler ─────────────────
+
+  OnFlightDelayedFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-on-flight-delayed-${Stage}
+      Handler: handlers.events.on_flight_delayed.handler
+      CodeUri: src/
+      Description: v4 — re-evaluates TentativeMatch on flight delay
+      Environment:
+        Variables:
+          EVENT_BUS_NAME: !Ref FlotEventBus
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref FlotEventBus
+      Events:
+        FlightDelayed:
+          Type: CloudWatchEvent
+          Properties:
+            EventBusName: !Ref FlotEventBus
+            Pattern:
+              source:
+                - flot-backend
+              detail-type:
+                - flight.delayed
+                - flight.advanced
+
+  # ── v4 — match.invalidated handler ───────────────────────────────
+
+  OnMatchInvalidatedFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-on-match-invalidated-${Stage}
+      Handler: handlers.events.on_match_invalidated.handler
+      CodeUri: src/
+      Description: v4 — notifies users when a confirmed match is cancelled
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt PushNotificationTopic.TopicName
+      Events:
+        MatchInvalidated:
+          Type: CloudWatchEvent
+          Properties:
+            EventBusName: !Ref FlotEventBus
+            Pattern:
+              source:
+                - flot-backend
+              detail-type:
+                - match.invalidated
 
 # ─────────────────────────────────────────────────────────────────────
 # Outputs

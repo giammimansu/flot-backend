@@ -903,7 +903,7 @@ Non scrivere codice finché non ti confermo il piano.
 
 ---
 
-### Sprint 3 — DynamoDB: Schema v4 + GSI6 `[ TODO ]`
+### Sprint 3 — DynamoDB: Schema v4 + GSI6 `[ done ]`
 
 **Goal:** Entità `TentativeMatch` + GSI6 + nuovi campi Trip pronti per shadow pool.
 
@@ -917,7 +917,7 @@ Non scrivere codice finché non ti confermo il piano.
 
 ---
 
-### Sprint 4 — Shadow Pool: Matchmaker v4 `[ TODO ]`
+### Sprint 4 — Shadow Pool: Matchmaker v4 `[ done ]`
 
 **Goal:** Matchmaker crea TentativeMatch (non match definitivi); `process_lock_window` converte a definitivi a T-3h.
 
@@ -931,7 +931,7 @@ Non scrivere codice finché non ti confermo il piano.
 
 ---
 
-### Sprint 5 — Flight Tracker Lambda + Event Handlers `[ TODO ]`
+### Sprint 5 — Flight Tracker Lambda + Event Handlers `[ done ]`
 
 **Goal:** Polling ETA ogni 15 min; eventi `flight.delayed` → invalida TentativeMatch incompatibili.
 
@@ -967,9 +967,9 @@ Non scrivere codice finché non ti confermo il piano.
 |--------|-----------|-------|
 | S1 | TripCreate v4 + Flight Tracker client | `[ done ]` |
 | S2 | Dynamic threshold + Detour penalty | `[ done ]` |
-| S3 | DynamoDB schema v4 + GSI6 | `[ TODO ]` |
-| S4 | Shadow Pool + Matchmaker v4 | `[ TODO ]` |
-| S5 | FlightTrackerFunction + Event handlers | `[ TODO ]` |
+| S3 | DynamoDB schema v4 + GSI6 | `[ done ]` |
+| S4 | Shadow Pool + Matchmaker v4 | `[ done ]` |
+| S5 | FlightTrackerFunction + Event handlers | `[ done ]` |
 | S6 | Hardening + Deploy MVP | `[ TODO ]` |
 
 ---
