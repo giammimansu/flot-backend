@@ -11,17 +11,26 @@ from .airports import get_airport, AirportConfig
 
 logger = Logger(child=True)
 
-BUCKET_MINUTES = 10  # granularità bucket per GSI1
+BUCKET_MINUTES = 10
+_LIVE_TOLERANCE_MIN = 30
+_SLOT_DURATION_MIN = 60
+
+# ── Bucket helpers ────────────────────────────────────────────────────
 
 def get_time_bucket(flight_time: str) -> str:
-    """Arrotonda al bucket da 10 minuti più vicino (in UTC)."""
     dt = datetime.fromisoformat(flight_time.replace("Z", "+00:00"))
     minutes = (dt.minute // BUCKET_MINUTES) * BUCKET_MINUTES
     dt = dt.replace(minute=minutes, second=0, microsecond=0)
     return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
+def get_slot_bucket(flight_time: str, slot_duration_min: int) -> str:
+    dt = datetime.fromisoformat(flight_time.replace("Z", "+00:00"))
+    total_min = dt.hour * 60 + dt.minute
+    floored = (total_min // slot_duration_min) * slot_duration_min
+    dt = dt.replace(hour=floored // 60, minute=floored % 60, second=0, microsecond=0)
+    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
 def get_adjacent_buckets(bucket: str, n: int = 2) -> list[str]:
-    """Restituisce i bucket adiacenti (±n bucket)."""
     dt = datetime.fromisoformat(bucket.replace("Z", "+00:00"))
     buckets = []
     for i in range(-n, n + 1):
@@ -29,35 +38,48 @@ def get_adjacent_buckets(bucket: str, n: int = 2) -> list[str]:
         buckets.append(shifted.isoformat().replace("+00:00", "Z"))
     return buckets
 
+def get_adjacent_slots(bucket: str, slot_duration_min: int, n: int = 1) -> list[str]:
+    dt = datetime.fromisoformat(bucket.replace("Z", "+00:00"))
+    return [
+        (dt + timedelta(minutes=slot_duration_min * i)).isoformat().replace("+00:00", "Z")
+        for i in range(-n, n + 1)
+    ]
+
 def get_adjacent_buckets_for_mode(bucket: str, mode: str, airport: AirportConfig) -> list[str]:
-    """
-    Scheduled: ±6 bucket (±60 min con BUCKET_MINUTES=10)
-    Live:      ±2 bucket (±20 min)
-    """
     if mode == "scheduled":
         n = airport.scheduled_match_window_min // BUCKET_MINUTES
     else:
         n = airport.max_wait_minutes // BUCKET_MINUTES
     return get_adjacent_buckets(bucket, n=n)
 
+# ── Distance ─────────────────────────────────────────────────────────
+
 def haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
-    """Distanza in km tra due punti GPS."""
     R = 6371.0
     dlat = radians(lat2 - lat1)
     dlng = radians(lng2 - lng1)
     a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlng / 2) ** 2
     return R * 2 * atan2(sqrt(a), sqrt(1 - a))
 
+# ── Score components ──────────────────────────────────────────────────
+
 def distance_score(dist_km: float) -> float:
-    """Score di distanza tra destinazioni."""
     if dist_km <= 2:   return 1.0
     if dist_km <= 5:   return 0.8
     if dist_km <= 10:  return 0.5
     if dist_km <= 20:  return 0.2
     return 0.0
 
+def luggage_score(luggage_a: int, luggage_b: int) -> float:
+    total = luggage_a + luggage_b
+    if total <= 3: return 1.0
+    if total <= 4: return 0.8
+    if total <= 5: return 0.4
+    return 0.0
+
 def time_score(bucket_a: str, bucket_b: str) -> float:
-    """Score di prossimità temporale tra due bucket."""
+    if not bucket_a or not bucket_b:
+        return 0.5
     dt_a = datetime.fromisoformat(bucket_a.replace("Z", "+00:00"))
     dt_b = datetime.fromisoformat(bucket_b.replace("Z", "+00:00"))
     delta_min = abs((dt_a - dt_b).total_seconds()) / 60
@@ -67,7 +89,6 @@ def time_score(bucket_a: str, bucket_b: str) -> float:
     return 0.0
 
 def profile_score(user_a: dict, user_b: dict) -> float:
-    """Bonus profilo: lingua condivisa + verifica identità."""
     score = 0.0
     if user_a.get("lang") == user_b.get("lang"):
         score += 0.1
@@ -75,24 +96,147 @@ def profile_score(user_a: dict, user_b: dict) -> float:
         score += 0.1
     return score
 
+# ── v4 — Dynamic threshold ────────────────────────────────────────────
+
+def compute_dynamic_threshold(
+    base_threshold: float,
+    flight_time_a: str,
+    flight_time_b: str,
+    now: datetime,
+) -> float:
+    """
+    Time-decay threshold: more selective far from flight, more lenient near lock window.
+
+    Curve:
+    - ≥168h (7d) → 0.70
+    - ≥48h       → 0.50
+    - ≥24h       → 0.35
+    - ≥6h        → base_threshold (typically 0.25)
+    - <6h        → max(0.20, base_threshold - 0.05)
+    """
+    dt_a = datetime.fromisoformat(flight_time_a.replace("Z", "+00:00"))
+    dt_b = datetime.fromisoformat(flight_time_b.replace("Z", "+00:00"))
+    hours_to_flight = min(
+        (dt_a - now).total_seconds() / 3600,
+        (dt_b - now).total_seconds() / 3600,
+    )
+    hours_to_flight = max(0, hours_to_flight)
+
+    if hours_to_flight >= 168:  return 0.70
+    if hours_to_flight >= 48:   return 0.50
+    if hours_to_flight >= 24:   return 0.35
+    if hours_to_flight >= 6:    return base_threshold
+    return max(0.20, base_threshold - 0.05)
+
+# ── v4 — Detour corridor ──────────────────────────────────────────────
+
+def estimate_detour_minutes(
+    trip_a: dict,
+    trip_b: dict,
+    airport: AirportConfig,
+) -> float:
+    """
+    Estimates driver detour in minutes to serve both destinations.
+    MVP: haversine approximation, no routing API. Replace with Google Routes in v4.1.
+    Uses airport.zones[0] as airport center approximation.
+    """
+    airport_lat = airport.zones[0].lat
+    airport_lng = airport.zones[0].lng
+
+    d_airport_to_a = haversine_km(airport_lat, airport_lng, trip_a["destLat"], trip_a["destLng"])
+    d_airport_to_b = haversine_km(airport_lat, airport_lng, trip_b["destLat"], trip_b["destLng"])
+    d_a_to_b = haversine_km(trip_a["destLat"], trip_a["destLng"], trip_b["destLat"], trip_b["destLng"])
+
+    route_ab = d_airport_to_a + d_a_to_b
+    route_ba = d_airport_to_b + d_a_to_b
+    direct = max(d_airport_to_a, d_airport_to_b)
+
+    detour_km = min(route_ab, route_ba) - direct
+    URBAN_SPEED_KMH = 30
+    return max(0.0, (detour_km / URBAN_SPEED_KMH) * 60)
+
+
+def apply_detour_penalty(score: float, detour_min: float, max_detour_min: int) -> float:
+    """
+    Penalizes score for inefficient driver routes.
+
+    - 0–5 min:  no penalty
+    - 5–15 min: linear penalty up to -0.2
+    - >15 min:  fixed -0.3 (V-route — near-impossible to match)
+    """
+    if detour_min <= 5:
+        return score
+    elif detour_min <= 15:
+        penalty = 0.2 * ((detour_min - 5) / 10)
+        return max(0.0, score - penalty)
+    else:
+        return max(0.0, score - 0.3)
+
+# ── Compatibility ─────────────────────────────────────────────────────
+
+def can_match_direction(trip_a: dict, trip_b: dict) -> bool:
+    return trip_a.get("direction") == trip_b.get("direction")
+
+def can_match_modes(trip_a: dict, trip_b: dict) -> bool:
+    mode_a, mode_b = trip_a.get("mode"), trip_b.get("mode")
+    if mode_a == mode_b:
+        return True
+    live = trip_a if mode_a == "live" else trip_b
+    sched = trip_a if mode_a == "scheduled" else trip_b
+    slot_start = datetime.fromisoformat(sched["arrivalSlot"].replace("Z", "+00:00"))
+    slot_end = slot_start + timedelta(minutes=_SLOT_DURATION_MIN)
+    live_time = datetime.fromisoformat(live["createdAt"].replace("Z", "+00:00"))
+    return (slot_start - timedelta(minutes=_LIVE_TOLERANCE_MIN)) <= live_time <= slot_end
+
 def compute_match_score(trip_a: dict, trip_b: dict, user_a: dict, user_b: dict, mode: str = "scheduled") -> float:
-    """Score finale pesato diversamente per modalità."""
     dist_km = haversine_km(trip_a["destLat"], trip_a["destLng"], trip_b["destLat"], trip_b["destLng"])
     d_score = distance_score(dist_km)
-    t_score = time_score(trip_a["timeBucket"], trip_b["timeBucket"])
+    t_score = time_score(trip_a.get("timeBucket", ""), trip_b.get("timeBucket", ""))
     p_score = profile_score(user_a, user_b)
 
     if mode == "scheduled":
         final = (0.6 * d_score) + (0.2 * t_score) + (0.2 * p_score)
     else:
         final = (0.5 * d_score) + (0.3 * t_score) + (0.2 * p_score)
-        
-    logger.info("match_score_computed", dist_km=round(dist_km, 2), d_score=d_score, t_score=t_score, p_score=p_score, final=round(final, 3))
+
+    logger.info(
+        "match_score_computed",
+        dist_km=round(dist_km, 2),
+        d_score=d_score,
+        t_score=t_score,
+        p_score=p_score,
+        final=round(final, 3),
+    )
     return final
 
-def can_match_direction(trip_a: dict, trip_b: dict) -> bool:
-    """I due trip devono avere la la stessa direzione."""
-    return trip_a.get("direction") == trip_b.get("direction")
+# ── Find best match (v3 greedy — replaced by build_compatibility_matrix in v4) ──
+
+def find_best_match(query_trip: dict, query_user: dict) -> "MatchResult | None":
+    airport = get_airport(query_trip["airportCode"])
+    bucket = query_trip.get("timeBucket") or get_time_bucket(query_trip["flightTime"])
+    buckets = get_adjacent_buckets_for_mode(bucket, query_trip.get("mode", "scheduled"), airport)
+
+    best: "MatchResult | None" = None
+    for b in buckets:
+        candidates = dynamo.query_gsi(
+            index_name="GSI1-TimeBucket",
+            pk_name="gsi1pk",
+            pk_value=f"{query_trip['airportCode']}#{b}",
+        )
+        for c in candidates:
+            if c["pk"] == query_trip["pk"]:
+                continue
+            if c.get("status") not in ("scheduled", None):
+                continue
+            if not can_match_direction(query_trip, c):
+                continue
+            c_user = dynamo.get_item(f"USER#{c['userId']}", "PROFILE") or {}
+            score = compute_match_score(query_trip, c, query_user, c_user, mode=query_trip.get("mode", "scheduled"))
+            if score >= airport.match_threshold and (best is None or score > best.score):
+                best = MatchResult(candidate=c, score=score)
+    return best
+
+# ── Entities ──────────────────────────────────────────────────────────
 
 @dataclass
 class MatchResult:

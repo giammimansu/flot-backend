@@ -873,7 +873,7 @@ Non scrivere codice finché non ti confermo il piano.
 
 ---
 
-### Sprint 1 — Foundation: TripCreate v4 + Flight Tracker Client `[ TODO ]`
+### Sprint 1 — Foundation: TripCreate v4 + Flight Tracker Client `[ done ]`
 
 **Goal:** `flightNumber` + `flightDate` obbligatori, `flightTime` auto-risolto da API tracker al momento della `POST /trips`.
 
@@ -888,7 +888,7 @@ Non scrivere codice finché non ti confermo il piano.
 
 ---
 
-### Sprint 2 — Matching Core: Soglie Dinamiche + Corridoio Direzionale `[ TODO ]`
+### Sprint 2 — Matching Core: Soglie Dinamiche + Corridoio Direzionale `[ done ]`
 
 **Goal:** Sostituire soglia fissa e raggio radiale con `compute_dynamic_threshold` + `estimate_detour_minutes`.
 
@@ -965,8 +965,8 @@ Non scrivere codice finché non ti confermo il piano.
 
 | Sprint | Contenuto | Stato |
 |--------|-----------|-------|
-| S1 | TripCreate v4 + Flight Tracker client | `[ TODO ]` |
-| S2 | Dynamic threshold + Detour penalty | `[ TODO ]` |
+| S1 | TripCreate v4 + Flight Tracker client | `[ done ]` |
+| S2 | Dynamic threshold + Detour penalty | `[ done ]` |
 | S3 | DynamoDB schema v4 + GSI6 | `[ TODO ]` |
 | S4 | Shadow Pool + Matchmaker v4 | `[ TODO ]` |
 | S5 | FlightTrackerFunction + Event handlers | `[ TODO ]` |

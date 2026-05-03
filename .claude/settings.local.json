@@ -11,7 +11,8 @@
       "Bash(\"/c/Python313/python.exe\" -m pip install pytest pydantic \"aws-lambda-powertools\" -q)",
       "Bash(\"/c/Python313/python.exe\" -m pytest tests/unit/test_flight_tracker.py -v)",
       "PowerShell(Get-Command *)",
-      "PowerShell(py *)"
+      "PowerShell(py *)",
+      "Bash(pip show *)"
     ]
   }
 }

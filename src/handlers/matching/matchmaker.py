@@ -10,7 +10,16 @@ from aws_lambda_powertools.metrics import MetricUnit
 
 from lib import dynamo
 from lib.airports import get_active_airports, AirportConfig
-from lib.matching import find_best_match, build_match_item
+from lib.matching import (
+    find_best_match,
+    build_match_item,
+    can_match_direction,
+    compute_dynamic_threshold,
+    compute_match_score,
+    estimate_detour_minutes,
+    apply_detour_penalty,
+    haversine_km,
+)
 from lib.eventbridge import put_event
 
 logger = Logger()
@@ -80,6 +89,75 @@ def process_airport(airport: AirportConfig) -> int:
             matches_created += 1
 
     return matches_created
+
+def build_compatibility_matrix(
+    pool: list[dict],
+    airport: AirportConfig,
+    now: datetime,
+) -> list[tuple]:
+    """
+    Returns list[(tripId_a, tripId_b, score, dist_km, detour_min)] sorted by score desc.
+    Applies dynamic threshold and detour filter per v4 spec.
+    """
+    pairs = []
+
+    for i, trip_a in enumerate(pool):
+        for j, trip_b in enumerate(pool):
+            if j <= i:
+                continue
+
+            if not can_match_direction(trip_a, trip_b):
+                continue
+
+            if "destLat" not in trip_a or "destLat" not in trip_b:
+                continue
+
+            if not trip_a.get("flightTime") or not trip_b.get("flightTime"):
+                continue
+
+            dynamic_threshold = compute_dynamic_threshold(
+                airport.match_threshold,
+                trip_a["flightTime"],
+                trip_b["flightTime"],
+                now,
+            )
+
+            dist_km = haversine_km(
+                trip_a["destLat"], trip_a["destLng"],
+                trip_b["destLat"], trip_b["destLng"],
+            )
+
+            detour_min = estimate_detour_minutes(trip_a, trip_b, airport)
+
+            if detour_min > airport.max_detour_minutes:
+                continue
+
+            user_a = dynamo.get_item(f"USER#{trip_a['userId']}", "PROFILE") or {}
+            user_b = dynamo.get_item(f"USER#{trip_b['userId']}", "PROFILE") or {}
+            score = compute_match_score(trip_a, trip_b, user_a, user_b, mode="scheduled")
+            score = apply_detour_penalty(score, detour_min, airport.max_detour_minutes)
+
+            if score >= dynamic_threshold:
+                pairs.append((trip_a["tripId"], trip_b["tripId"], score, round(dist_km, 2), round(detour_min, 1)))
+
+    pairs.sort(key=lambda x: x[2], reverse=True)
+    return pairs
+
+
+def find_optimal_assignments(pairs: list[tuple]) -> list[tuple]:
+    """Greedy assignment by score. O(n²), sufficient for MVP pool sizes (<100 trips)."""
+    assigned: set[str] = set()
+    assignments = []
+
+    for trip_a_id, trip_b_id, score, dist_km, detour_min in pairs:
+        if trip_a_id in assigned or trip_b_id in assigned:
+            continue
+        assignments.append((trip_a_id, trip_b_id, score, dist_km, detour_min))
+        assigned.add(trip_a_id)
+        assigned.add(trip_b_id)
+
+    return assignments
+
 
 def expire_trip(trip: dict):
     trip["status"] = "expired"
