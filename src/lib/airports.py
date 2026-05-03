@@ -51,10 +51,19 @@ class AirportConfig:
     timezone: str            # "Europe/Rome"
     terminals: list[Terminal] = field(default_factory=list)
     zones: list[Zone] = field(default_factory=list)
-    adjacent_zones: dict[str, list[str]] = field(default_factory=dict)
     meeting_points: dict[str, MeetingPoint] = field(default_factory=dict)
     direction_labels: tuple[str, str] = ("TO_CITY", "FROM_CITY")
-    search_timeout_sec: int = 300  # 5 min default
+
+    # Live mode
+    search_timeout_sec: int = 300
+    max_wait_minutes: int = 20
+
+    # Scheduled mode
+    scheduled_match_window_min: int = 60
+    scheduled_advance_days: int = 7
+
+    # Shared
+    match_threshold: float = 0.25
     active: bool = True
 
 
@@ -84,19 +93,16 @@ AIRPORTS: dict[str, AirportConfig] = {
             Zone(code="sud",    label="Sud",     lat=45.4500, lng=9.1900, radius_km=2.5, landmarks=["Bocconi", "Porta Romana"]),
             Zone(code="est",    label="Est",     lat=45.4780, lng=9.2350, radius_km=2.5, landmarks=["Lambrate", "Città Studi"]),
         ],
-        adjacent_zones={
-            "centro": ["nord", "ovest", "sud", "est"],
-            "nord":   ["centro", "est"],
-            "ovest":  ["centro"],
-            "sud":    ["centro", "est"],
-            "est":    ["centro", "nord", "sud"],
-        },
         meeting_points={
             "T1": MeetingPoint(label="Exit 4 · Arrivals", description="Ground floor · Taxi sharing stand", walk_minutes=8),
             "T2": MeetingPoint(label="Exit 2 · Arrivals", description="Ground floor · Taxi rank", walk_minutes=5),
         },
         direction_labels=("TO_MILAN", "FROM_MILAN"),
         search_timeout_sec=300,
+        max_wait_minutes=20,
+        scheduled_match_window_min=60,
+        scheduled_advance_days=7,
+        match_threshold=0.25,
         active=True,
     ),
     # ── Future airports (inactive until launch) ──────────────────────
@@ -142,7 +148,6 @@ def airport_to_dict(airport: AirportConfig) -> dict:
             }
             for z in airport.zones
         ],
-        "adjacentZones": airport.adjacent_zones,
         "meetingPoints": {
             k: {
                 "label": mp.label,
@@ -152,5 +157,8 @@ def airport_to_dict(airport: AirportConfig) -> dict:
             for k, mp in airport.meeting_points.items()
         },
         "directionLabels": list(airport.direction_labels),
-        "searchTimeoutSec": airport.search_timeout_sec,
+        "liveSearchTimeoutSec": airport.live_search_timeout_sec,
+        "livePoolTtlSec": airport.live_pool_ttl_sec,
+        "scheduledSlotDurationMin": airport.scheduled_slot_duration_min,
+        "matchThreshold": airport.match_threshold,
     }

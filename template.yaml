@@ -27,6 +27,10 @@ Globals:
         POWERTOOLS_SERVICE_NAME: flot-backend
         POWERTOOLS_METRICS_NAMESPACE: Flot
         LOG_LEVEL: INFO
+        SNS_PLATFORM_ARN: !Ref SnsPlatformArn
+        SES_FROM_EMAIL: !Ref SesFromEmail
+        MATCH_NOTIFICATION_TEMPLATE: !Ref MatchNotificationTemplate
+        PUSH_NOTIFICATION_TOPIC_ARN: !Ref PushNotificationTopic
 
 # ─────────────────────────────────────────────────────────────────────
 # Parameters
@@ -58,11 +62,37 @@ Parameters:
     Default: /flot/dev/google-client-secret
     NoEcho: true
 
+  SnsPlatformArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /flot/dev/sns-platform-arn
+
+  SesFromEmail:
+    Type: String
+    Default: noreply@flot.app
+
+  MatchNotificationTemplate:
+    Type: String
+    Default: match_found
+
 # ─────────────────────────────────────────────────────────────────────
 # Resources
 # ─────────────────────────────────────────────────────────────────────
 
 Resources:
+
+  # ── SNS ────────────────────────────────────────────────────────────
+
+  PushNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "flot-push-${Stage}"
+
+  # ── EventBridge ────────────────────────────────────────────────────
+
+  FlotEventBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: flot-events
 
   # ── Shared Lambda Layer ────────────────────────────────────────────
 
@@ -94,10 +124,12 @@ Resources:
           AttributeType: S
         - AttributeName: sk
           AttributeType: S
-        # GSI1: Matching (airport+timeBucket → destZone)
+        # GSI1: Matching (airport+timeBucket -> old and new keys)
         - AttributeName: gsi1pk
           AttributeType: S
         - AttributeName: gsi1sk
+          AttributeType: S
+        - AttributeName: createdAt
           AttributeType: S
         # GSI2: User trips (userId → createdAt)
         - AttributeName: gsi2pk
@@ -112,18 +144,32 @@ Resources:
         # GSI4: Stripe intent lookup
         - AttributeName: gsi4pk
           AttributeType: S
+        # GSI5: Scheduled matching (airportCode#status -> flightTime)
+        - AttributeName: gsi5pk
+          AttributeType: S
+        - AttributeName: gsi5sk
+          AttributeType: S
       KeySchema:
         - AttributeName: pk
           KeyType: HASH
         - AttributeName: sk
           KeyType: RANGE
       GlobalSecondaryIndexes:
-        # GSI1-TimeBucket: airportCode#timeBucket → destZone
+        # GSI1-TimeBucket: airportCode#timeBucket → destZone (OLD - TO BE DELETED)
         - IndexName: GSI1-TimeBucket
           KeySchema:
             - AttributeName: gsi1pk
               KeyType: HASH
             - AttributeName: gsi1sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        # GSI1-TimeBucket-v2: airportCode#timeBucket → createdAt (NEW)
+        - IndexName: GSI1-TimeBucket-v2
+          KeySchema:
+            - AttributeName: gsi1pk
+              KeyType: HASH
+            - AttributeName: createdAt
               KeyType: RANGE
           Projection:
             ProjectionType: ALL
@@ -152,6 +198,17 @@ Resources:
               KeyType: HASH
           Projection:
             ProjectionType: ALL
+        
+        # GSI5-TripStatus: airportCode#status → flightTime
+        - IndexName: GSI5-TripStatus
+          KeySchema:
+            - AttributeName: gsi5pk
+              KeyType: HASH
+            - AttributeName: gsi5sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
       StreamSpecification:
         StreamViewType: NEW_AND_OLD_IMAGES
       TimeToLiveSpecification:
@@ -438,8 +495,25 @@ Resources:
             Path: /users/me
             Method: GET
 
-  # Users: Update Profile (auth required)
-  UpdateProfileFunction:
+  # Users: Update Profile (auth required)    RegisterPushTokenFunction:
+      Type: AWS::Serverless::Function
+      Properties:
+        FunctionName: !Sub flot-register-push-token-${Stage}
+        Handler: handlers.users.register_push_token.handler
+        CodeUri: src/
+        Description: PUT /users/me/push-token — register push token
+        Policies:
+          - DynamoDBCrudPolicy:
+              TableName: !Ref FlotTable
+        Events:
+          RegisterPushToken:
+            Type: Api
+            Properties:
+              RestApiId: !Ref FlotApi
+              Path: /users/me/push-token
+              Method: PUT
+
+    # Users: Update Profile (auth required)  UpdateProfileFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub flot-update-profile-${Stage}
@@ -506,6 +580,227 @@ Resources:
       Principal: s3.amazonaws.com
       SourceArn: !GetAtt MediaBucket.Arn
       SourceAccount: !Ref AWS::AccountId
+
+  # ── Notifications ──────────────────────────────────────────────────
+  GetNotificationsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-get-notifications-${Stage}
+      Handler: handlers.notifications.get_notifications.handler
+      CodeUri: src/
+      Description: GET /notifications — list user notifications
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref FlotTable
+      Events:
+        GetNotifications:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FlotApi
+            Path: /notifications
+            Method: GET
+
+  # ── Trips ──────────────────────────────────────────────────────────
+  MyTripsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-my-trips-${Stage}
+      Handler: handlers.trips.my_trips.handler
+      CodeUri: src/
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref FlotTable
+      Events:
+        MyTrips:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FlotApi
+            Path: /trips/my
+            Method: GET
+
+  CancelTripFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-cancel-trip-${Stage}
+      Handler: handlers.trips.cancel_trip.handler
+      CodeUri: src/
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref FlotEventBus
+      Events:
+        CancelTrip:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FlotApi
+            Path: /trips/{tripId}
+            Method: DELETE
+  CreateTripFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-create-trip-${Stage}
+      Handler: handlers.trips.create_trip.handler
+      CodeUri: src/
+      Description: POST /trips — create a new trip
+      Environment:
+        Variables:
+          EVENT_BUS_NAME: !Ref FlotEventBus
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref FlotEventBus
+      Events:
+        CreateTrip:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FlotApi
+            Path: /trips
+            Method: POST
+
+  GetTripFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-get-trip-${Stage}
+      Handler: handlers.trips.get_trip.handler
+      CodeUri: src/
+      Description: GET /trips/{tripId} — retrieve trip details
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref FlotTable
+      Events:
+        GetTrip:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FlotApi
+            Path: /trips/{tripId}
+            Method: GET
+
+  SearchTripsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-search-trips-${Stage}
+      Handler: handlers.trips.search_trips.handler
+      CodeUri: src/
+      Description: POST /trips/search — search for matching trips
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref FlotTable
+      Events:
+        SearchTrips:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FlotApi
+            Path: /trips/search
+            Method: POST
+
+  # ── Events ─────────────────────────────────────────────────────────
+
+  OnTripCreatedFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-on-trip-created-${Stage}
+      Handler: handlers.events.on_trip_created.handler
+      CodeUri: src/
+      Description: EventBridge — trip.created.* — matching attempt
+      Environment:
+        Variables:
+          EVENT_BUS_NAME: !Ref FlotEventBus
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref FlotEventBus
+      Events:
+        TripCreatedLive:
+          Type: CloudWatchEvent
+          Properties:
+            EventBusName: !Ref FlotEventBus
+            Pattern:
+              source:
+                - flot-backend
+              detail-type:
+                - trip.created.live
+        TripCreatedScheduled:
+          Type: CloudWatchEvent
+          Properties:
+            EventBusName: !Ref FlotEventBus
+            Pattern:
+              source:
+                - flot-backend
+              detail-type:
+                - trip.created.scheduled
+
+  OnMatchFoundFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-on-match-found-${Stage}
+      Handler: handlers.events.on_match_found.handler
+      CodeUri: src/
+      Description: EventBridge — match.found — WS notification
+      Environment:
+        Variables:
+          WS_ENDPOINT: "" # To be provided when WS API is added
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt PushNotificationTopic.TopicName
+        - SESCrudPolicy:
+            IdentityName: !Ref SesFromEmail
+      Events:
+        MatchFound:
+          Type: CloudWatchEvent
+          Properties:
+            EventBusName: !Ref FlotEventBus
+            Pattern:
+              source:
+                - flot-backend
+              detail-type:
+                - match.found
+
+  MatchmakerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-matchmaker-${Stage}
+      Handler: handlers.matching.matchmaker.handler
+      CodeUri: src/
+      Description: Background scheduled job for finding matches
+      MemorySize: 512
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref FlotEventBus
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt PushNotificationTopic.TopicName
+      Events:
+        ScheduleEvent:
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpression: rate(5 minutes)
+
+  OnTripExpiredFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-on-trip-expired-${Stage}
+      Handler: handlers.events.on_trip_expired.handler
+      CodeUri: src/
+      Description: EventBridge — trip.expired
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+      Events:
+        TripExpired:
+          Type: CloudWatchEvent
+          Properties:
+            EventBusName: !Ref FlotEventBus
+            Pattern:
+              source:
+                - flot-backend
+              detail-type:
+                - trip.expired
 
 # ─────────────────────────────────────────────────────────────────────
 # Outputs

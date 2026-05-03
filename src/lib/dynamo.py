@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 from typing import Any
+from decimal import Decimal
 
 import boto3
 from aws_lambda_powertools import Logger
@@ -139,6 +140,30 @@ def transact_write(items: list[dict[str, Any]]) -> None:
     except ClientError as e:
         logger.error("DynamoDB transact_write failed", extra={"error": str(e)})
         raise
+
+
+def to_ddb(d: dict[str, Any]) -> dict[str, Any]:
+    """Marshal a Python dict into DynamoDB AttributeValue JSON.
+
+    Used for low-level transact_write_items calls (boto3 client API).
+    """
+    return {k: _attr(v) for k, v in d.items()}
+
+
+def _attr(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {"NULL": True}
+    if isinstance(value, bool):
+        return {"BOOL": value}
+    if isinstance(value, (int, float, Decimal)):
+        return {"N": str(value)}
+    if isinstance(value, str):
+        return {"S": value}
+    if isinstance(value, list):
+        return {"L": [_attr(v) for v in value]}
+    if isinstance(value, dict):
+        return {"M": to_ddb(value)}
+    return {"S": str(value)}
 
 
 def delete_item(pk: str, sk: str) -> None:

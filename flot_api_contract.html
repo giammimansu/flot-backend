@@ -230,8 +230,11 @@
   "airportCode": "MXP",          // REQUIRED — sempre inviare
   "terminal": "T1",              // da airport.terminals
   "direction": "TO_MILAN",       // da airport.directionLabels
-  "destination": "Milano Centrale",
-  "destZone": "nord",            // da airport.zones
+  "destination": "Milano Centrale", // stringa mostrata in UI
+  "destLat": 45.4854,            // REQUIRED — latitudine Google MAPS
+  "destLng": 9.2040,             // REQUIRED — longitudine Google MAPS
+  "destPlaceId": "ChIJ...",      // REQUIRED — Google Place ID
+  "destZone": "nord",            // OPTIONAL — se assente, inferita via fallback GPS backend
   "flightTime": "2026-04-24T14:30:00Z",
   "paxCount": 1,
   "luggage": 2
@@ -264,8 +267,11 @@
   "airportCode": "MXP",
   "terminal": "T1",
   "direction": "TO_MILAN",
-  "destZone": "nord",
   "destination": "Milano Centrale",
+  "destLat": 45.4854,
+  "destLng": 9.2040,
+  "destPlaceId": "ChIJ...",
+  "destZone": "nord",
   "flightTime": "2026-04-24T14:30:00Z",
   "timeBucket": "2026-04-24T14:30:00Z",
   "paxCount": 1,

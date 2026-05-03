@@ -446,7 +446,7 @@ Resources:
 
 Follow this exact order. Each step should be a separate commit.
 
-### Sprint 1: Foundation (Week 1-2)
+### Sprint 1: Foundation (Week 1-2) [DONE]
 1. `sam init` + template.yaml skeleton with Parameters and Globals
 2. DynamoDB table + 4 GSIs
 3. Cognito User Pool with Google/Apple identity providers
@@ -456,9 +456,9 @@ Follow this exact order. Each step should be a separate commit.
 7. REST API Gateway with Cognito Authorizer
 8. Basic unit tests for user handlers
 
-### Sprint 2: Core Logic (Week 3-4)
+### Sprint 2: Core Logic (Week 3-4)[WIP]
 9. Trip creation handler + validation
-10. Matching engine (lib/matching.mjs + lib/zones.mjs)
+10. Read file MATCHING-GPS-UPGRADE-BACKEND.md and implement the matching engine
 11. Search endpoint (searchTrips with GSI1 queries)
 12. WebSocket API Gateway setup
 13. Connect/disconnect handlers

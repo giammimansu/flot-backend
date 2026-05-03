@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 
 # ── Enums ────────────────────────────────────────────────────────────
@@ -42,6 +42,7 @@ class Direction(str, Enum):
 
 
 class TripStatus(str, Enum):
+    SCHEDULED = "scheduled"
     SEARCHING = "searching"
     MATCHED = "matched"
     UNLOCKED = "unlocked"
@@ -58,6 +59,11 @@ class MatchStatus(str, Enum):
     COMPLETED = "completed"
     EXPIRED = "expired"
     CANCELLED = "cancelled"
+
+
+class TripMode(str, Enum):
+    LIVE = "live"
+    SCHEDULED = "scheduled"
 
 
 # ── User Models ──────────────────────────────────────────────────────
@@ -108,8 +114,27 @@ class CreateTripRequest(BaseModel):
 
     airportCode: str = Field(..., min_length=3, max_length=4)  # noqa: N815
     terminal: str = Field(..., min_length=2, max_length=4)
-    direction: Direction
-    destZone: str = Field(..., min_length=2, max_length=20)  # noqa: N815
-    flightTime: str  # ISO 8601 datetime  # noqa: N815
-    luggage: int = Field(default=1, ge=0, le=5)
-    paxCount: int = Field(default=1, ge=1, le=2)  # noqa: N815
+    direction: str = Field(..., min_length=2, max_length=32)  # validated against airport.direction_labels
+    destination: str
+    destLat: float = Field(..., ge=-90, le=90)  # noqa: N815
+    destLng: float = Field(..., ge=-180, le=180)  # noqa: N815
+    destPlaceId: str  # noqa: N815
+    luggage: int = Field(default=0, ge=0, le=6)
+    paxCount: int = Field(default=1, ge=1, le=4)  # noqa: N815
+    mode: TripMode
+    flightTime: str  # noqa: N815
+
+    @model_validator(mode="after")
+    def validate_mode_fields(self) -> CreateTripRequest:
+        if self.mode == TripMode.SCHEDULED and not self.flightTime:
+            raise ValueError("flightTime is required for mode=scheduled")
+        return self
+
+class TripCancel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: str | None = None
+
+class PushTokenUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    token: str = Field(..., min_length=1)
+    platform: str = Field(..., pattern="^(fcm|apns)$")

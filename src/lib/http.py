@@ -27,16 +27,13 @@ ALLOWED_ORIGINS = [
 
 
 def cors_headers(origin: str | None = None) -> dict[str, str]:
-    """Build CORS headers. Reflects matching Origin or defaults to first allowed."""
-    if origin and origin in ALLOWED_ORIGINS:
-        allow_origin = origin
-    else:
-        allow_origin = ALLOWED_ORIGINS[0]
+    """Build CORS headers. Reflects matching Origin or defaults to *."""
+    allow_origin = origin if origin else "*"
 
     return {
         "Access-Control-Allow-Origin": allow_origin,
-        "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Amz-Date, X-Api-Key, X-Amz-Security-Token",
         "Access-Control-Allow-Credentials": "true",
         "Access-Control-Max-Age": "86400",
     }

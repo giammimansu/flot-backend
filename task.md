@@ -1,0 +1,7 @@
+- `[x]` Step 1: Aggiornamento `src/lib/airports.py`
+- `[x]` Step 2: Aggiornamento `src/lib/validation.py`
+- `[x]` Step 3: Aggiornamento schema e persistenza `src/handlers/trips/create_trip.py`
+- `[x]` Step 4: Refactoring logica `src/lib/matching.py`
+- `[x]` Step 5: Aggiornamento algoritmo `src/handlers/trips/search_trips.py`
+- `[x]` Step 6: Riscrittura notifiche e EventBridge (`on_trip_created.py`, `on_match_found.py`)
+- `[x]` Step 7: Aggiornamento test unitari `tests/unit/test_matching.py`

@@ -1,0 +1,16 @@
+{
+  "resource": "/trips",
+  "path": "/trips",
+  "httpMethod": "POST",
+  "headers": {
+    "Origin": "http://localhost:3000"
+  },
+  "requestContext": {
+    "authorizer": {
+      "claims": {
+        "sub": "46fea2c0-9051-7056-8bd7-b7bad07bf362"
+      }
+    }
+  },
+  "body": "{\"airportCode\": \"MXP\", \"terminal\": \"T1\", \"direction\": \"TO_CITY\", \"destination\": \"Milano Centrale\", \"destLat\": 45.485, \"destLng\": 9.204, \"destPlaceId\": \"ChIJiwZ-1e7GhkcRMx0qD730k3g\", \"flightTime\": \"2026-04-26T16:00:00Z\", \"luggage\": 1, \"paxCount\": 1}"
+}
