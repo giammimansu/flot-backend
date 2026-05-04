@@ -783,6 +783,10 @@ Resources:
       CodeUri: src/
       Description: Background scheduled job for finding matches
       MemorySize: 512
+      Environment:
+        Variables:
+          LOCK_HOURS_BEFORE: "3"
+          EVENT_BUS_NAME: !Ref FlotEventBus
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref FlotTable

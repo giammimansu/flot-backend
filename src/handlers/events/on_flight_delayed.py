@@ -50,7 +50,7 @@ def handler(event: dict, context) -> None:
     compatible = check_time_compatibility(trip_a, trip_b, airport, mode="scheduled")
 
     if compatible:
-        logger.info("match_still_valid_after_delay", matchId=match_id, deltaMin=round(delta_min, 1))
+        logger.info("match_still_valid_after_delay", matchId=match_id, deltaMin=round(delta_min, 2))
         return
 
     # Delay broke compatibility — dissolve TentativeMatch and return trips to pool
@@ -63,11 +63,11 @@ def handler(event: dict, context) -> None:
         "userId1": tm["userId1"],
         "userId2": tm["userId2"],
         "reason": "flight_delay",
-        "deltaMinutes": round(delta_min, 1),
+        "deltaMinutes": round(delta_min, 2),
     })
 
     logger.info(
         "match_invalidated_by_delay",
         matchId=match_id,
-        deltaMin=round(delta_min, 1),
+        deltaMin=round(delta_min, 2),
     )

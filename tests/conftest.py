@@ -58,6 +58,10 @@ def dynamodb_table():
                 {"AttributeName": "gsi3pk", "AttributeType": "S"},
                 {"AttributeName": "gsi3sk", "AttributeType": "S"},
                 {"AttributeName": "gsi4pk", "AttributeType": "S"},
+                {"AttributeName": "gsi5pk", "AttributeType": "S"},
+                {"AttributeName": "gsi5sk", "AttributeType": "S"},
+                {"AttributeName": "gsi6pk", "AttributeType": "S"},
+                {"AttributeName": "lockAt", "AttributeType": "S"},
             ],
             GlobalSecondaryIndexes=[
                 {
@@ -88,6 +92,22 @@ def dynamodb_table():
                     "IndexName": "GSI4-StripeIntent",
                     "KeySchema": [
                         {"AttributeName": "gsi4pk", "KeyType": "HASH"},
+                    ],
+                    "Projection": {"ProjectionType": "ALL"},
+                },
+                {
+                    "IndexName": "GSI5-TripStatus",
+                    "KeySchema": [
+                        {"AttributeName": "gsi5pk", "KeyType": "HASH"},
+                        {"AttributeName": "gsi5sk", "KeyType": "RANGE"},
+                    ],
+                    "Projection": {"ProjectionType": "ALL"},
+                },
+                {
+                    "IndexName": "GSI6-TentativeMatch",
+                    "KeySchema": [
+                        {"AttributeName": "gsi6pk", "KeyType": "HASH"},
+                        {"AttributeName": "lockAt", "KeyType": "RANGE"},
                     ],
                     "Projection": {"ProjectionType": "ALL"},
                 },

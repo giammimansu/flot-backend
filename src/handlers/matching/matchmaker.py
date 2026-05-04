@@ -148,13 +148,13 @@ def _promote_tentative_to_match(
         "airportCode": airport.code,
         "userId1": trip_a["userId"],
         "userId2": trip_b["userId"],
-        "score": round(float(tm.get("score", 0)), 3),
+        "score": round(float(tm.get("score", 0)), 2),
         "savings": airport.base_fare // 2 / 100,
     })
     logger.info(
         "match_locked",
         matchId=match_item["matchId"],
-        score=round(float(tm.get("score", 0)), 3),
+        score=round(float(tm.get("score", 0)), 2),
     )
     return True
 
@@ -186,9 +186,9 @@ def optimize_pool(airport: AirportConfig, now: datetime) -> int:
             if score > float(existing_tm.get("score", 0)) + 0.05:
                 dynamo.update_item(
                     existing_tm["pk"], "META",
-                    {"score": round(score, 3)},
+                    {"score": round(score, 2)},
                 )
-                logger.info("tentative_match_score_updated", matchId=existing_tm.get("matchId"), newScore=round(score, 3))
+                logger.info("tentative_match_score_updated", matchId=existing_tm.get("matchId"), newScore=round(score, 2))
             continue
 
         # Dissolve any different existing TentativeMatch for either trip
@@ -331,10 +331,10 @@ def _create_direct_match(
         "airportCode": airport.code,
         "userId1": trip_a["userId"],
         "userId2": trip_b["userId"],
-        "score": round(score, 3),
+        "score": round(score, 2),
         "savings": airport.base_fare // 2 / 100,
     })
-    logger.info("direct_match_created", matchId=match_item["matchId"], score=round(score, 3))
+    logger.info("direct_match_created", matchId=match_item["matchId"], score=round(score, 2))
 
 
 # ── Compatibility matrix + assignment (Sprint 2) ──────────────────────
@@ -382,7 +382,7 @@ def build_compatibility_matrix(
             score = apply_detour_penalty(score, detour_min, airport.max_detour_minutes)
 
             if score >= dynamic_threshold:
-                pairs.append((trip_a["tripId"], trip_b["tripId"], score, round(dist_km, 2), round(detour_min, 1)))
+                pairs.append((trip_a["tripId"], trip_b["tripId"], score, round(dist_km, 2), round(detour_min, 2)))
 
     pairs.sort(key=lambda x: x[2], reverse=True)
     return pairs

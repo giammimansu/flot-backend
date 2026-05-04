@@ -103,7 +103,7 @@ def _update_flight_eta(trip: dict, now: datetime) -> bool:
     logger.info(
         "flight_eta_updated",
         tripId=trip["pk"],
-        delta_min=round(delta_min, 1),
+        delta_min=round(delta_min, 2),
         newEta=new_flight_time,
     )
     metrics.add_metric(name="FlightEtaUpdates", unit=MetricUnit.Count, value=1)
@@ -114,7 +114,7 @@ def _update_flight_eta(trip: dict, now: datetime) -> bool:
             "matchId": trip["tentativeMatchId"],
             "oldFlightTime": trip["flightTime"],
             "newFlightTime": new_flight_time,
-            "deltaMinutes": round(delta_min, 1),
+            "deltaMinutes": round(delta_min, 2),
         })
 
     return True

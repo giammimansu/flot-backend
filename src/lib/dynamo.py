@@ -214,9 +214,9 @@ def create_tentative_match(
         "userId1": trip_a["userId"],
         "userId2": trip_b["userId"],
         "airportCode": airport_code,
-        "score": round(score, 3),
+        "score": round(score, 2),
         "distKm": round(dist_km, 2),
-        "detourMinutes": round(detour_min, 1),
+        "detourMinutes": round(detour_min, 2),
         "status": "tentative_match",
         "lockAt": lock_at_iso,
         "gsi6pk": f"{airport_code}#tentative",
@@ -245,9 +245,9 @@ def create_tentative_match(
         matchId=match_id,
         tripId1=trip_a["tripId"],
         tripId2=trip_b["tripId"],
-        score=round(score, 3),
+        score=round(score, 2),
         distKm=round(dist_km, 2),
-        detourMin=round(detour_min, 1),
+        detourMin=round(detour_min, 2),
         lockAt=lock_at_iso,
     )
     return item
