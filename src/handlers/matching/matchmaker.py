@@ -361,6 +361,11 @@ def build_compatibility_matrix(
             if not trip_a.get("flightTime") or not trip_b.get("flightTime"):
                 continue
 
+            # Prevent re-matching with the same unresponsive partner
+            if trip_b["userId"] in trip_a.get("previousMatchPartners", []) or \
+               trip_a["userId"] in trip_b.get("previousMatchPartners", []):
+                continue
+
             dynamic_threshold = compute_dynamic_threshold(
                 airport.match_threshold,
                 trip_a["flightTime"],

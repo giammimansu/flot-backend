@@ -70,6 +70,12 @@ class AirportConfig:
     max_detour_minutes: int = 15
     flight_tracker_provider: str = "mock"  # "aviation_edge" | "flightaware" | "mock"
 
+    # Sprint 5 — Payment Deadlock Resolution
+    unlock_timeout_minutes: int = 120
+    unlock_reminder_intervals: list[int] = field(default_factory=lambda: [30, 60, 90])
+    unlock_repool_enabled: bool = True
+    unlock_no_response_dissolve_hours: int = 12
+
 
 # ─────────────────────────────────────────────────────────────────────
 # Airport Registry
@@ -110,6 +116,10 @@ AIRPORTS: dict[str, AirportConfig] = {
         active=True,
         max_detour_minutes=15,
         flight_tracker_provider="aviation_edge",
+        unlock_timeout_minutes=120,
+        unlock_reminder_intervals=[30, 60, 90],
+        unlock_repool_enabled=True,
+        unlock_no_response_dissolve_hours=12,
     ),
     # ── Future airports (inactive until launch) ──────────────────────
     # "FCO": AirportConfig(code="FCO", name="Roma Fiumicino", city="Roma", ...),

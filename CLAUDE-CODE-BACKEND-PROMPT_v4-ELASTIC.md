@@ -946,7 +946,7 @@ Non scrivere codice finché non ti confermo il piano.
 
 ---
 
-### Sprint 6 — Hardening, Osservabilità, Deploy MVP `[ TODO ]`
+### Sprint 6 — Hardening, Osservabilità, Deploy MVP `[ done ]`
 
 **Goal:** Circuit breaker flight tracker robusto; logging strutturato; deploy MXP production.
 
@@ -970,7 +970,7 @@ Non scrivere codice finché non ti confermo il piano.
 | S3 | DynamoDB schema v4 + GSI6 | `[ done ]` |
 | S4 | Shadow Pool + Matchmaker v4 | `[ done ]` |
 | S5 | FlightTrackerFunction + Event handlers | `[ done ]` |
-| S6 | Hardening + Deploy MVP | `[ TODO ]` |
+| S6 | Hardening + Deploy MVP | `[ done ]` |
 
 ---
 

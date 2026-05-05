@@ -710,6 +710,41 @@ Resources:
             Path: /trips/search
             Method: POST
 
+  UnlockMatchFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-unlock-match-${Stage}
+      Handler: handlers.matches.unlock_match.handler
+      CodeUri: src/
+      Description: POST /trips/{tripId}/unlock — unlock a match
+      Environment:
+        Variables:
+          STRIPE_SECRET_KEY: !Sub "{{resolve:ssm:/flot/${Stage}/stripe-secret-key}}"
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref FlotEventBus
+        - Statement:
+            Effect: Allow
+            Action: scheduler:CreateSchedule
+            Resource: !Sub "arn:aws:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/default/unlock-*"
+        - Statement:
+            Effect: Allow
+            Action: scheduler:DeleteSchedule
+            Resource: !Sub "arn:aws:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/default/unlock-*"
+        - Statement:
+            Effect: Allow
+            Action: iam:PassRole
+            Resource: !GetAtt SchedulerInvokeLambdaRole.Arn
+      Events:
+        UnlockMatch:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FlotApi
+            Path: /trips/{tripId}/unlock
+            Method: POST
+
   # ── Events ─────────────────────────────────────────────────────────
 
   OnTripCreatedFunction:
@@ -903,6 +938,134 @@ Resources:
                 - flot-backend
               detail-type:
                 - match.invalidated
+
+  # ── Sprint 5: Payment Deadlock Resolution ─────────────────────────
+
+  UnlockTimeoutFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-unlock-timeout-${Stage}
+      Handler: handlers.events.on_unlock_expired.handler
+      CodeUri: src/
+      Description: EventBridge Scheduler — handles unlock timeout
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref FlotEventBus
+        - Statement:
+            Effect: Allow
+            Action: scheduler:DeleteSchedule
+            Resource: !Sub "arn:aws:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/default/unlock-*"
+
+  UnlockReminderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-unlock-reminder-${Stage}
+      Handler: handlers.events.on_unlock_reminder.handler
+      CodeUri: src/
+      Description: EventBridge Scheduler — escalante reminder
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref FlotTable
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt PushNotificationTopic.TopicName
+        - SESCrudPolicy:
+            IdentityName: !Ref SesFromEmail
+
+  OnPartialUnlockFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-on-partial-unlock-${Stage}
+      Handler: handlers.events.on_partial_unlock.handler
+      CodeUri: src/
+      Description: EventBridge — match.partially_unlocked
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt PushNotificationTopic.TopicName
+        - SESCrudPolicy:
+            IdentityName: !Ref SesFromEmail
+        - Statement:
+            Effect: Allow
+            Action: scheduler:CreateSchedule
+            Resource: !Sub "arn:aws:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/default/unlock-*"
+        - Statement:
+            Effect: Allow
+            Action: iam:PassRole
+            Resource: !GetAtt SchedulerInvokeLambdaRole.Arn
+      Events:
+        EventBridgeRule:
+          Type: CloudWatchEvent
+          Properties:
+            EventBusName: !Ref FlotEventBus
+            Pattern:
+              source:
+                - flot-backend
+              detail-type:
+                - match.partially_unlocked
+
+  OnMatchDissolvedFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-on-match-dissolved-${Stage}
+      Handler: handlers.events.on_match_dissolved.handler
+      CodeUri: src/
+      Description: EventBridge — match.dissolved
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+      Events:
+        EventBridgeRule:
+          Type: CloudWatchEvent
+          Properties:
+            EventBusName: !Ref FlotEventBus
+            Pattern:
+              source:
+                - flot-backend
+              detail-type:
+                - match.dissolved
+
+  MatchDissolveCheckerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-match-dissolve-checker-${Stage}
+      Handler: handlers.matching.dissolve_checker.handler
+      CodeUri: src/
+      Description: Scheduled job to dissolve unresponsive matches
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref FlotEventBus
+      Events:
+        ScheduledRule:
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpression: "rate(1 hour)"
+            State: ENABLED
+
+  SchedulerInvokeLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvokeLambda
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource:
+                  - !GetAtt UnlockTimeoutFunction.Arn
+                  - !GetAtt UnlockReminderFunction.Arn
 
 # ─────────────────────────────────────────────────────────────────────
 # Outputs
