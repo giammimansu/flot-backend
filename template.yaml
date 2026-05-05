@@ -27,7 +27,6 @@ Globals:
         POWERTOOLS_SERVICE_NAME: flot-backend
         POWERTOOLS_METRICS_NAMESPACE: Flot
         LOG_LEVEL: INFO
-        SNS_PLATFORM_ARN: !Ref SnsPlatformArn
         SES_FROM_EMAIL: !Ref SesFromEmail
         MATCH_NOTIFICATION_TEMPLATE: !Ref MatchNotificationTemplate
         PUSH_NOTIFICATION_TOPIC_ARN: !Ref PushNotificationTopic
@@ -62,10 +61,6 @@ Parameters:
     Default: /flot/dev/google-client-secret
     NoEcho: true
 
-  SnsPlatformArn:
-    Type: AWS::SSM::Parameter::Value<String>
-    Default: /flot/dev/sns-platform-arn
-
   SesFromEmail:
     Type: String
     Default: noreply@flot.app
@@ -73,6 +68,13 @@ Parameters:
   MatchNotificationTemplate:
     Type: String
     Default: match_found
+
+# ─────────────────────────────────────────────────────────────────────
+# Conditions
+# ─────────────────────────────────────────────────────────────────────
+
+Conditions:
+  IsDev: !Equals [!Ref Stage, dev]
 
 # ─────────────────────────────────────────────────────────────────────
 # Resources
@@ -116,6 +118,7 @@ Resources:
   FlotTable:
     Type: AWS::DynamoDB::Table
     DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: !Sub Flot-${Stage}
       BillingMode: PAY_PER_REQUEST
@@ -510,25 +513,27 @@ Resources:
             Path: /users/me
             Method: GET
 
-  # Users: Update Profile (auth required)    RegisterPushTokenFunction:
-      Type: AWS::Serverless::Function
-      Properties:
-        FunctionName: !Sub flot-register-push-token-${Stage}
-        Handler: handlers.users.register_push_token.handler
-        CodeUri: src/
-        Description: PUT /users/me/push-token — register push token
-        Policies:
-          - DynamoDBCrudPolicy:
-              TableName: !Ref FlotTable
-        Events:
-          RegisterPushToken:
-            Type: Api
-            Properties:
-              RestApiId: !Ref FlotApi
-              Path: /users/me/push-token
-              Method: PUT
+  # Users: Register Push Token (auth required)
+  RegisterPushTokenFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-register-push-token-${Stage}
+      Handler: handlers.users.register_push_token.handler
+      CodeUri: src/
+      Description: PUT /users/me/push-token — register push token
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+      Events:
+        RegisterPushToken:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FlotApi
+            Path: /users/me/push-token
+            Method: PUT
 
-    # Users: Update Profile (auth required)  UpdateProfileFunction:
+  # Users: Update Profile (auth required)
+  UpdateProfileFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub flot-update-profile-${Stage}
@@ -568,8 +573,6 @@ Resources:
   # Users: Process Photo (S3 trigger — notification configured via post-deploy script)
   ProcessPhotoFunction:
     Type: AWS::Serverless::Function
-    DependsOn:
-      - MediaCDN
     Properties:
       FunctionName: !Sub flot-process-photo-${Stage}
       Handler: handlers.users.process_photo.handler
@@ -719,7 +722,7 @@ Resources:
       Description: POST /trips/{tripId}/unlock — unlock a match
       Environment:
         Variables:
-          STRIPE_SECRET_KEY: !Sub "{{resolve:ssm:/flot/${Stage}/stripe-secret-key}}"
+          STRIPE_SECRET_KEY: !If [IsDev, "", !Sub "{{resolve:ssm:/flot/${Stage}/stripe-secret-key}}"]
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref FlotTable
@@ -869,8 +872,8 @@ Resources:
       Timeout: 30
       Environment:
         Variables:
-          FLIGHT_TRACKER_PROVIDER: !Sub "{{resolve:ssm:/flot/${Stage}/flight-tracker-provider}}"
-          FLIGHT_TRACKER_API_KEY: !Sub "{{resolve:ssm:/flot/${Stage}/flight-tracker-key}}"
+          FLIGHT_TRACKER_PROVIDER: !If [IsDev, "mock", !Sub "{{resolve:ssm:/flot/${Stage}/flight-tracker-provider}}"]
+          FLIGHT_TRACKER_API_KEY: !If [IsDev, "", !Sub "{{resolve:ssm:/flot/${Stage}/flight-tracker-key}}"]
           TRACKING_WINDOW_HOURS: "12"
           EVENT_BUS_NAME: !Ref FlotEventBus
       Policies:
