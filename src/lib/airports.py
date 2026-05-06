@@ -173,8 +173,7 @@ def airport_to_dict(airport: AirportConfig) -> dict:
             for k, mp in airport.meeting_points.items()
         },
         "directionLabels": list(airport.direction_labels),
-        "liveSearchTimeoutSec": airport.live_search_timeout_sec,
-        "livePoolTtlSec": airport.live_pool_ttl_sec,
-        "scheduledSlotDurationMin": airport.scheduled_slot_duration_min,
+        "searchTimeoutSec": airport.search_timeout_sec,
         "matchThreshold": airport.match_threshold,
+        "active": airport.active,
     }

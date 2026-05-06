@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone, timedelta
+from decimal import Decimal
 
 from aws_lambda_powertools import Logger, Tracer
 from pydantic import ValidationError
@@ -94,8 +95,8 @@ def handler(event: dict, context) -> dict:
         "terminal": req.terminal,
         "direction": req.direction,
         "destination": req.destination,
-        "destLat": float(req.destLat),
-        "destLng": float(req.destLng),
+        "destLat": Decimal(str(req.destLat)),
+        "destLng": Decimal(str(req.destLng)),
         "destPlaceId": req.destPlaceId,
         "destZone": destZone,
         "mode": req.mode.value,

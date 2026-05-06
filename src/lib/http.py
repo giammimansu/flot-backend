@@ -20,9 +20,8 @@ tracer = Tracer()
 ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:3001",
-    "https://flot.it",
-    "https://www.flot.it",
-    "https://app.flot.it",
+    "https://flot-app.com",
+    "https://d8o5e1c1cqrgw.cloudfront.net"
 ]
 
 

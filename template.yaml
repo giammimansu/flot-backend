@@ -315,10 +315,14 @@ Resources:
         - http://localhost:3000/auth/callback
         - http://localhost:3001/auth/callback
         - !Sub https://app.flot.it/auth/callback
+        - https://www.flot-app.com/auth/callback
+        - https://d8o5e1c1cqrgw.cloudfront.net/auth/callback
       LogoutURLs:
         - http://localhost:3000
         - http://localhost:3001
         - https://app.flot.it
+        - https://www.flot-app.com
+        - https://d8o5e1c1cqrgw.cloudfront.net
       AllowedOAuthFlows:
         - code
       AllowedOAuthScopes:

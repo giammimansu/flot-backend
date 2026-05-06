@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from aws_lambda_powertools import Logger, Tracer
 from lib import dynamo
-from lib.http import app_handler, json_response
+from lib.http import app_handler, success
 
 logger = Logger()
 tracer = Tracer()
@@ -29,4 +29,4 @@ def handler(event: dict, context) -> dict:
     # Sort descending by createdAt
     trips.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
 
-    return json_response({"trips": trips}, origin)
+    return success({"trips": trips}, origin)
