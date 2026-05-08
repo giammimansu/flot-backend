@@ -15,7 +15,7 @@ s3_prefix = "flot-backend-dev"
 region = "eu-south-1"
 capabilities = "CAPABILITY_IAM CAPABILITY_AUTO_EXPAND"
 confirm_changeset = true
-parameter_overrides = "Stage=dev FakeDoorMode=true"
+parameter_overrides = "Stage=dev FakeDoorMode=false FirebaseCredentialsSecretArn=arn:aws:secretsmanager:eu-south-1:183695702800:secret:/flot/dev/firebase-credentials-qxb96N"
 tags = "Project=flot Environment=dev"
 
 [prod]

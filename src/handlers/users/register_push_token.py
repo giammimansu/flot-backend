@@ -28,8 +28,7 @@ def handler(event: dict, context) -> dict:
     dynamo.update_item(
         f"USER#{user_id}",
         "PROFILE",
-        update_expr="SET pushToken = :p, platform = :pl",
-        expr_values={":p": req.token, ":pl": req.platform}
+        updates={"pushToken": req.token, "platform": req.platform},
     )
     
-    return json_response({"message": "Push token registered"})
+    return json_response(200, {"message": "Push token registered"})

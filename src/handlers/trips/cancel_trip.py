@@ -50,4 +50,4 @@ def handler(event: dict, context) -> dict:
 
     put_event("trip.cancelled", {"tripId": trip_id, "airportCode": trip.get("airportCode")})
 
-    return json_response({"message": "Trip cancelled", "tripId": trip_id}, origin)
+    return json_response(200, {"message": "Trip cancelled", "tripId": trip_id}, origin)

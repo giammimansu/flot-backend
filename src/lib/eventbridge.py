@@ -16,7 +16,7 @@ logger = Logger(child=True)
 
 _client = boto3.client("events")
 _bus_name = os.environ.get("EVENT_BUS_NAME", "flot-events")
-_source = "flot.backend"
+_source = "flot-backend"
 
 
 def put_event(detail_type: str, detail: dict[str, Any], source: str | None = None) -> None:

@@ -1,7 +1,7 @@
-"""Flot — Cognito PostConfirmation trigger.
+"""Flot — Cognito PostConfirmation + PostAuthentication trigger.
 
-Runs after a user signs up via Google/Apple social login.
-Creates the USER#{userId} / PROFILE item in DynamoDB.
+Handles both triggers to cover email/password and social (Google/Apple) signups.
+Creates the USER#{userId} / PROFILE item in DynamoDB on first login.
 """
 from __future__ import annotations
 
@@ -10,26 +10,25 @@ from datetime import datetime, timezone
 from aws_lambda_powertools import Logger, Metrics, Tracer
 from aws_lambda_powertools.metrics import MetricUnit
 
-from lib.dynamo import put_item
+from lib.dynamo import get_item, put_item
 
 logger = Logger()
 tracer = Tracer()
 metrics = Metrics()
+
+_HANDLED_TRIGGERS = {
+    "PostConfirmation_ConfirmSignUp",
+    "PostAuthentication_Authentication",
+}
 
 
 @logger.inject_lambda_context(log_event=True)
 @tracer.capture_lambda_handler
 @metrics.log_metrics(capture_cold_start_metric=True)
 def handler(event: dict, context) -> dict:
-    """Cognito PostConfirmation Lambda trigger.
-
-    Called after user confirms signup (auto-confirmed for social login).
-    Creates the user profile in DynamoDB.
-    """
     trigger_source = event.get("triggerSource", "")
 
-    # Only process PostConfirmation_ConfirmSignUp
-    if trigger_source != "PostConfirmation_ConfirmSignUp":
+    if trigger_source not in _HANDLED_TRIGGERS:
         logger.info("Skipping trigger", extra={"triggerSource": trigger_source})
         return event
 
@@ -40,7 +39,13 @@ def handler(event: dict, context) -> dict:
         logger.error("Missing sub in userAttributes")
         return event
 
-    # Extract profile data from Cognito attributes
+    # For PostAuthentication, skip if profile already exists (not first login)
+    if trigger_source == "PostAuthentication_Authentication":
+        existing = get_item(f"USER#{user_id}", "PROFILE")
+        if existing:
+            logger.info("User already exists, skipping", extra={"userId": user_id})
+            return event
+
     email = user_attributes.get("email", "")
     name = user_attributes.get("name") or user_attributes.get("given_name", "")
     picture = user_attributes.get("picture", "")
@@ -58,22 +63,18 @@ def handler(event: dict, context) -> dict:
         "thumbUrl": "",
         "isPro": False,
         "verified": False,
-        "lang": "it",  # Default for MXP launch
+        "lang": "it",
         "gender": None,
         "ageGroup": None,
         "createdAt": now,
         "updatedAt": now,
-        # GSI2: userId → createdAt (for user trip history)
         "gsi2pk": user_id,
         "gsi2sk": now,
     }
 
     put_item(user_item)
 
-    logger.info("User created", extra={"userId": user_id, "email": email})
+    logger.info("User created", extra={"userId": user_id, "email": email, "triggerSource": trigger_source})
     metrics.add_metric(name="UserCreated", unit=MetricUnit.Count, value=1)
 
-    # Note: EventBridge user.created event will be added in Sprint 2
-
-    # Must return the event object for Cognito
     return event

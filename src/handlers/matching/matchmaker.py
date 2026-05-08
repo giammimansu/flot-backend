@@ -99,10 +99,10 @@ def _promote_tentative_to_match(
     table_name = os.environ["TABLE_NAME"]
 
     locked_a = {k: v for k, v in trip_a.items() if k not in ("gsi5pk", "gsi1pk")}
-    locked_a.update({"status": "matched", "tentativeMatchId": None})
+    locked_a.update({"status": "matched", "tentativeMatchId": None, "matchId": match_item["matchId"]})
 
     locked_b = {k: v for k, v in trip_b.items() if k not in ("gsi5pk", "gsi1pk")}
-    locked_b.update({"status": "matched", "tentativeMatchId": None})
+    locked_b.update({"status": "matched", "tentativeMatchId": None, "matchId": match_item["matchId"]})
 
     try:
         dynamo.transact_write([
@@ -287,10 +287,10 @@ def _create_direct_match(
     match_item = build_match_item(trip_a, trip_b, score)
 
     locked_a = {k: v for k, v in trip_a.items() if k not in ("gsi5pk", "gsi1pk")}
-    locked_a.update({"status": "matched", "tentativeMatchId": None})
+    locked_a.update({"status": "matched", "tentativeMatchId": None, "matchId": match_item["matchId"]})
 
     locked_b = {k: v for k, v in trip_b.items() if k not in ("gsi5pk", "gsi1pk")}
-    locked_b.update({"status": "matched", "tentativeMatchId": None})
+    locked_b.update({"status": "matched", "tentativeMatchId": None, "matchId": match_item["matchId"]})
 
     try:
         dynamo.transact_write([
@@ -462,6 +462,7 @@ def create_match(trip_a: dict, trip_b: dict, score: float) -> None:
 
     for t in [trip_a, trip_b]:
         t["status"] = "matched"
+        t["matchId"] = match_item["matchId"]
         t.pop("gsi5pk", None)
         t.pop("gsi1pk", None)
 

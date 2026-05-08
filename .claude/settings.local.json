@@ -12,7 +12,20 @@
       "Bash(\"/c/Python313/python.exe\" -m pytest tests/unit/test_flight_tracker.py -v)",
       "PowerShell(Get-Command *)",
       "PowerShell(py *)",
-      "Bash(pip show *)"
+      "Bash(pip show *)",
+      "Bash(aws cloudformation *)",
+      "Bash(aws dynamodb scan *)",
+      "Bash(aws lambda list-functions *)",
+      "Bash(aws lambda get-function-configuration *)",
+      "Bash(aws dynamodb get-item *)",
+      "Bash(aws lambda *)",
+      "Read(//tmp/**)",
+      "Bash(aws dynamodb put-item --table-name Flot-dev --region eu-south-1 --item '{ *)",
+      "Bash(sam build *)",
+      "Bash(aws logs *)",
+      "Bash(grep -v \"^$\")",
+      "Bash(aws dynamodb *)",
+      "PowerShell(aws logs tail *)"
     ]
   }
 }

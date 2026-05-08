@@ -1,6 +1,6 @@
 """Flot — Notification utilities.
 
-Multi-channel notifications: WebSocket -> SNS (Push) -> SES (Email).
+Multi-channel notifications: WebSocket -> Firebase (Push) -> SES (Email).
 """
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ import time
 import uuid
 
 import boto3
+import firebase_admin
+from firebase_admin import credentials, messaging
 from aws_lambda_powertools import Logger
 
 from lib import dynamo
@@ -17,12 +19,28 @@ from lib.websocket import send_to_user
 
 logger = Logger()
 
-sns = boto3.client("sns")
 ses = boto3.client("ses")
 
 FAKE_DOOR_MODE = os.environ.get("FAKE_DOOR_MODE", "true").lower() == "true"
-SNS_TOPIC_ARN = os.environ.get("PUSH_NOTIFICATION_TOPIC_ARN")
+FIREBASE_CREDENTIALS_SECRET_ARN = os.environ.get("FIREBASE_CREDENTIALS_SECRET_ARN")
 SES_FROM_EMAIL = os.environ.get("SES_FROM_EMAIL")
+
+# Firebase app singleton — initialized once per Lambda container
+_firebase_app: firebase_admin.App | None = None
+
+
+def _get_firebase_app() -> firebase_admin.App:
+    global _firebase_app
+    if _firebase_app is not None:
+        return _firebase_app
+    if not FIREBASE_CREDENTIALS_SECRET_ARN:
+        raise RuntimeError("FIREBASE_CREDENTIALS_SECRET_ARN not configured")
+    sm = boto3.client("secretsmanager")
+    secret = sm.get_secret_value(SecretId=FIREBASE_CREDENTIALS_SECRET_ARN)
+    cred_dict = json.loads(secret["SecretString"])
+    cred = credentials.Certificate(cred_dict)
+    _firebase_app = firebase_admin.initialize_app(cred)
+    return _firebase_app
 
 
 def save_notification(user_id: str, title: str, body: str, payload: dict) -> dict:
@@ -74,30 +92,19 @@ def send_push_notification(token: str, title: str, body: str, payload: dict):
         logger.info("FAKE_DOOR_MODE: Sent PUSH", extra={"token": token, "title": title})
         return
 
-    if not SNS_TOPIC_ARN:
-        logger.warning("No PUSH_NOTIFICATION_TOPIC_ARN configured for push notifications.")
-        return
-
-    message = {
-        "default": body,
-        "APNS": json.dumps({"aps": {"alert": {"title": title, "body": body}, "sound": "default"}, "payload": payload}),
-        "GCM": json.dumps({"notification": {"title": title, "body": body}, "data": payload}),
-    }
-    
     try:
-        sns.publish(
-            TopicArn=SNS_TOPIC_ARN,
-            MessageStructure="json",
-            Message=json.dumps(message),
-            MessageAttributes={
-                "TargetToken": {
-                    "DataType": "String",
-                    "StringValue": token
-                }
-            }
+        _get_firebase_app()
+        message = messaging.Message(
+            notification=messaging.Notification(title=title, body=body),
+            data={
+                "action": "open_match",
+                "matchId": str(payload.get("matchId", "")),
+            },
+            token=token,
         )
-        logger.info("Sent PUSH", extra={"token": token, "title": title})
-    except Exception as e:
+        messaging.send(message)
+        logger.info("Sent PUSH via Firebase", extra={"token": token, "title": title})
+    except Exception:
         logger.error("Failed to send PUSH", exc_info=True)
 
 

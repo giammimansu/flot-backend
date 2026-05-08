@@ -29,7 +29,7 @@ Globals:
         LOG_LEVEL: INFO
         SES_FROM_EMAIL: !Ref SesFromEmail
         MATCH_NOTIFICATION_TEMPLATE: !Ref MatchNotificationTemplate
-        PUSH_NOTIFICATION_TOPIC_ARN: !Ref PushNotificationTopic
+        FIREBASE_CREDENTIALS_SECRET_ARN: !Ref FirebaseCredentialsSecretArn
 
 # ─────────────────────────────────────────────────────────────────────
 # Parameters
@@ -68,6 +68,11 @@ Parameters:
   MatchNotificationTemplate:
     Type: String
     Default: match_found
+
+  FirebaseCredentialsSecretArn:
+    Type: String
+    Default: "*"
+    Description: ARN of the Secrets Manager secret containing the Firebase service account JSON
 
 # ─────────────────────────────────────────────────────────────────────
 # Conditions
@@ -267,6 +272,7 @@ Resources:
           RequireSymbols: false
       LambdaConfig:
         PostConfirmation: !GetAtt PostConfirmationFunction.Arn
+        PostAuthentication: !GetAtt PostConfirmationFunction.Arn
       UserPoolTags:
         Project: flot
         Environment: !Ref Stage
@@ -317,6 +323,7 @@ Resources:
         - !Sub https://app.flot.it/auth/callback
         - https://www.flot-app.com/auth/callback
         - https://d8o5e1c1cqrgw.cloudfront.net/auth/callback
+        - https://oauth.pstmn.io/v1/browser-callback
       LogoutURLs:
         - http://localhost:3000
         - http://localhost:3001
@@ -515,6 +522,24 @@ Resources:
           Properties:
             RestApiId: !Ref FlotApi
             Path: /users/me
+            Method: GET
+
+  GetUserPublicFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-get-user-public-${Stage}
+      Handler: handlers.users.get_user_public.handler
+      CodeUri: src/
+      Description: GET /users/{userId} — public profile (match partners only)
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref FlotTable
+      Events:
+        GetUserPublic:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FlotApi
+            Path: /users/{userId}
             Method: GET
 
   # Users: Register Push Token (auth required)
@@ -752,6 +777,44 @@ Resources:
             Path: /trips/{tripId}/unlock
             Method: POST
 
+  GetMatchFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-get-match-${Stage}
+      Handler: handlers.matches.get_match.handler
+      CodeUri: src/
+      Description: GET /matches/{matchId} — retrieve match details
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref FlotTable
+      Events:
+        GetMatch:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FlotApi
+            Path: /matches/{matchId}
+            Method: GET
+
+  DeclineMatchFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-decline-match-${Stage}
+      Handler: handlers.matches.decline_match.handler
+      CodeUri: src/
+      Description: POST /matches/{matchId}/decline — user declines a pending match
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref FlotTable
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref FlotEventBus
+      Events:
+        DeclineMatch:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FlotApi
+            Path: /matches/{matchId}/decline
+            Method: POST
+
   # ── Events ─────────────────────────────────────────────────────────
 
   OnTripCreatedFunction:
@@ -802,8 +865,10 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref FlotTable
-        - SNSPublishMessagePolicy:
-            TopicName: !GetAtt PushNotificationTopic.TopicName
+        - Statement:
+            Effect: Allow
+            Action: secretsmanager:GetSecretValue
+            Resource: !Ref FirebaseCredentialsSecretArn
         - SESCrudPolicy:
             IdentityName: !Ref SesFromEmail
       Events:
@@ -834,8 +899,10 @@ Resources:
             TableName: !Ref FlotTable
         - EventBridgePutEventsPolicy:
             EventBusName: !Ref FlotEventBus
-        - SNSPublishMessagePolicy:
-            TopicName: !GetAtt PushNotificationTopic.TopicName
+        - Statement:
+            Effect: Allow
+            Action: secretsmanager:GetSecretValue
+            Resource: !Ref FirebaseCredentialsSecretArn
       Events:
         ScheduleEvent:
           Type: ScheduleV2
@@ -933,8 +1000,10 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref FlotTable
-        - SNSPublishMessagePolicy:
-            TopicName: !GetAtt PushNotificationTopic.TopicName
+        - Statement:
+            Effect: Allow
+            Action: secretsmanager:GetSecretValue
+            Resource: !Ref FirebaseCredentialsSecretArn
       Events:
         MatchInvalidated:
           Type: CloudWatchEvent
@@ -975,8 +1044,10 @@ Resources:
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref FlotTable
-        - SNSPublishMessagePolicy:
-            TopicName: !GetAtt PushNotificationTopic.TopicName
+        - Statement:
+            Effect: Allow
+            Action: secretsmanager:GetSecretValue
+            Resource: !Ref FirebaseCredentialsSecretArn
         - SESCrudPolicy:
             IdentityName: !Ref SesFromEmail
 
@@ -990,8 +1061,10 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref FlotTable
-        - SNSPublishMessagePolicy:
-            TopicName: !GetAtt PushNotificationTopic.TopicName
+        - Statement:
+            Effect: Allow
+            Action: secretsmanager:GetSecretValue
+            Resource: !Ref FirebaseCredentialsSecretArn
         - SESCrudPolicy:
             IdentityName: !Ref SesFromEmail
         - Statement:

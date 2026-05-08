@@ -1,0 +1,7 @@
+{
+  "pk": {"S": "USER#46fea2c0-9051-7056-8bd7-b7bad07bf362"},
+  "sk": {"S": "PROFILE"},
+  "email": {"S": "gianmarcomansuetiblive.it"},
+  "name": {"S": "Gian Marco M"},
+  "type": {"S": "user"}
+}

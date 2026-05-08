@@ -20,6 +20,7 @@ logger = Logger(child=True)
 # ── Module-level client (reused across invocations) ──────────────────
 _dynamodb = boto3.resource("dynamodb")
 _table = _dynamodb.Table(os.environ.get("TABLE_NAME", "Flot"))
+table = _table  # public alias for handlers that need raw Table access
 
 
 def get_table():
@@ -155,6 +156,35 @@ def to_ddb(d: dict[str, Any]) -> dict[str, Any]:
     Used for low-level transact_write_items calls (boto3 client API).
     """
     return {k: _attr(v) for k, v in d.items()}
+
+
+def get_match(match_id: str) -> dict[str, Any] | None:
+    return get_item(f"MATCH#{match_id}", "META")
+
+
+def get_trip(trip_id: str) -> dict[str, Any] | None:
+    return get_item(f"TRIP#{trip_id}", "META")
+
+
+def get_user(user_id: str) -> dict[str, Any] | None:
+    return get_item(f"USER#{user_id}", "PROFILE")
+
+
+def now_iso() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def save_notification(user_id: str, payload: dict[str, Any]) -> None:
+    import uuid
+    _table.put_item(Item={
+        "pk": f"USER#{user_id}",
+        "sk": f"NOTIF#{uuid.uuid4()}",
+        "userId": user_id,
+        "read": False,
+        "createdAt": now_iso(),
+        **payload,
+    })
 
 
 def _attr(value: Any) -> dict[str, Any]:
