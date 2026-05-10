@@ -959,6 +959,31 @@ Resources:
             ScheduleExpression: rate(15 minutes)
             State: ENABLED
 
+  # ── Flight Lookup (UI autocomplete proxy) ────────────────────────
+
+  FlightLookupFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-flight-lookup-${Stage}
+      Handler: handlers.flights.flight_lookup.handler
+      CodeUri: src/
+      Description: GET /flights/lookup — AeroDataBox proxy for UI autocomplete
+      Timeout: 5
+      Environment:
+        Variables:
+          AERODATABOX_API_KEY: !If [IsDev, "", !Sub "{{resolve:ssm:/flot/${Stage}/aerodatabox-key}}"]
+          FLIGHT_TRACKER_PROVIDER: !If [IsDev, "mock", "aerodatabox"]
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref FlotTable
+      Events:
+        FlightLookup:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FlotApi
+            Path: /flights/lookup
+            Method: GET
+
   # ── v4 — flight.delayed / flight.advanced handler ─────────────────
 
   OnFlightDelayedFunction:

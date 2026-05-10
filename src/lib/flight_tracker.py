@@ -71,6 +71,8 @@ def fetch_flight_eta(flight_number: str, flight_date: str) -> datetime:
             eta = _mock_fetch(flight_number, flight_date)
         elif provider == "aviation_edge":
             eta = _aviation_edge_fetch(flight_number, flight_date)
+        elif provider == "aerodatabox":
+            eta = _aerodatabox_fetch(flight_number, flight_date)
         else:
             raise FlightTrackerError(f"unknown_provider:{provider}")
 
@@ -136,3 +138,47 @@ def _aviation_edge_fetch(flight_number: str, flight_date: str) -> datetime:
             return eta
 
     raise FlightTrackerError("flight_not_found_for_date")
+
+
+def _aerodatabox_fetch(flight_number: str, flight_date: str) -> datetime:
+    """AeroDataBox (RapidAPI) flight status. Timeout: 3s."""
+    api_key = os.environ.get("FLIGHT_TRACKER_API_KEY", "")
+    if not api_key:
+        raise FlightTrackerError("missing_api_key")
+
+    host = "aerodatabox.p.rapidapi.com"
+    encoded = urllib.parse.quote(flight_number)
+    url = f"https://{host}/flights/number/{encoded}/{flight_date}"
+
+    req = urllib.request.Request(
+        url,
+        headers={"X-RapidAPI-Key": api_key, "X-RapidAPI-Host": host},
+        method="GET",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            raw = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            raise FlightTrackerError("flight_not_found_for_date")
+        raise FlightTrackerError(f"http_{e.code}")
+    except OSError as exc:
+        raise FlightTrackerError(f"network_error:{exc}") from exc
+
+    if not isinstance(raw, list) or not raw:
+        raise FlightTrackerError("flight_not_found_for_date")
+
+    arrival = raw[0].get("arrival", {})
+    arrival_time_utc = (
+        arrival.get("actualTimeUtc")
+        or arrival.get("estimatedTimeUtc")
+        or arrival.get("scheduledTimeUtc")
+    )
+    if not arrival_time_utc:
+        raise FlightTrackerError("no_arrival_time")
+
+    try:
+        return datetime.fromisoformat(arrival_time_utc.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise FlightTrackerError(f"parse_error:{arrival_time_utc}") from exc

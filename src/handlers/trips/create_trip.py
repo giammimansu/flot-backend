@@ -61,17 +61,22 @@ def handler(event: dict, context) -> dict:
 
     destZone = req.destZone or coords_to_zone(airport.code, req.destLat, req.destLng)
 
-    # v4 — resolve flightTime from tracker; fallback to noon UTC if API unavailable
+    # v4 — resolve flightTime; prefer pre-resolved value from UI lookup (avoids extra API call)
     tracking_pending = False
-    try:
-        flight_dt = fetch_flight_eta(req.flightNumber, req.flightDate)
-        resolved_flight_time = flight_dt.isoformat().replace("+00:00", "Z")
-        logger.info("flight_eta_resolved", flightNumber=req.flightNumber, eta=resolved_flight_time)
-    except FlightTrackerError as exc:
-        logger.warning("flight_tracker_unavailable", flightNumber=req.flightNumber, reason=str(exc))
-        resolved_flight_time = f"{req.flightDate}T12:00:00Z"
+    if req.flightTime:
+        resolved_flight_time = req.flightTime
         flight_dt = datetime.fromisoformat(resolved_flight_time.replace("Z", "+00:00"))
-        tracking_pending = True
+        logger.info("flight_time_from_client", flightNumber=req.flightNumber, flightTime=resolved_flight_time)
+    else:
+        try:
+            flight_dt = fetch_flight_eta(req.flightNumber, req.flightDate)
+            resolved_flight_time = flight_dt.isoformat().replace("+00:00", "Z")
+            logger.info("flight_eta_resolved", flightNumber=req.flightNumber, eta=resolved_flight_time)
+        except FlightTrackerError as exc:
+            logger.warning("flight_tracker_unavailable", flightNumber=req.flightNumber, reason=str(exc))
+            resolved_flight_time = f"{req.flightDate}T12:00:00Z"
+            flight_dt = datetime.fromisoformat(resolved_flight_time.replace("Z", "+00:00"))
+            tracking_pending = True
 
     if req.mode == TripMode.LIVE:
         expires_at = now + timedelta(seconds=airport.search_timeout_sec)
