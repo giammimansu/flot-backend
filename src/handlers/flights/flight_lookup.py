@@ -12,6 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+import boto3
 from aws_lambda_powertools import Logger, Tracer
 from aws_lambda_powertools.utilities.typing import LambdaContext
 
@@ -21,6 +22,23 @@ logger = Logger()
 tracer = Tracer()
 
 RAPIDAPI_HOST = "aerodatabox.p.rapidapi.com"
+
+_ssm_client = None
+_api_key_cache: str | None = None
+
+
+def _get_api_key() -> str:
+    global _ssm_client, _api_key_cache
+    if _api_key_cache:
+        return _api_key_cache
+    param_name = os.environ.get("AERODATABOX_SSM_KEY", "")
+    if not param_name:
+        return ""
+    if _ssm_client is None:
+        _ssm_client = boto3.client("ssm")
+    resp = _ssm_client.get_parameter(Name=param_name, WithDecryption=True)
+    _api_key_cache = resp["Parameter"]["Value"]
+    return _api_key_cache
 
 
 @logger.inject_lambda_context
@@ -34,12 +52,17 @@ def handler(event: dict, context: LambdaContext) -> dict:
     if not flight_number or not flight_date:
         raise AppError(400, "missing_params", details={"required": ["number", "date"]})
 
-    api_key = os.environ.get("AERODATABOX_API_KEY", "")
+    provider = os.environ.get("FLIGHT_TRACKER_PROVIDER", "mock")
+    if provider == "mock":
+        return success(_mock_response(flight_number, flight_date), event.get("_origin"))
+
+    try:
+        api_key = _get_api_key()
+    except Exception as exc:
+        logger.warning("flight_lookup_ssm_error", reason=str(exc))
+        raise AppError(503, "flight_lookup_unavailable")
+
     if not api_key:
-        # In dev/mock mode return a plausible fake response
-        provider = os.environ.get("FLIGHT_TRACKER_PROVIDER", "mock")
-        if provider == "mock":
-            return success(_mock_response(flight_number, flight_date), event.get("_origin"))
         raise AppError(503, "flight_lookup_unavailable")
 
     try:
@@ -76,6 +99,11 @@ def _fetch_aerodatabox(flight_number: str, flight_date: str, api_key: str) -> di
     except urllib.error.HTTPError as e:
         if e.code == 404:
             raise _NotFoundError()
+        try:
+            body = e.read().decode("utf-8", errors="replace")[:500]
+        except Exception:
+            body = ""
+        logger.warning("aerodatabox_http_error", code=e.code, body=body)
         raise _UpstreamError(f"http_{e.code}")
     except OSError as e:
         raise _UpstreamError(f"network:{e}")
@@ -87,29 +115,43 @@ def _fetch_aerodatabox(flight_number: str, flight_date: str, api_key: str) -> di
     arrival = flight.get("arrival", {})
     departure = flight.get("departure", {})
 
-    arrival_time_local = (
-        arrival.get("actualTimeLocal")
-        or arrival.get("estimatedTimeLocal")
-        or arrival.get("scheduledTimeLocal")
-    )
-    arrival_time_utc = (
-        arrival.get("actualTimeUtc")
-        or arrival.get("estimatedTimeUtc")
-        or arrival.get("scheduledTimeUtc")
-    )
+    def _pick_time(block: dict, key: str) -> str | None:
+        for field in ("runwayTime", "revisedTime", "scheduledTime"):
+            t = block.get(field, {}).get(key)
+            if t:
+                return t
+        return None
+
+    arrival_time_utc = _pick_time(arrival, "utc")
+    arrival_time_local = _pick_time(arrival, "local")
 
     if not arrival_time_utc:
         raise _NotFoundError()
 
     airline_raw = flight.get("airline", {})
 
+    def _delay_minutes(block: dict) -> int | None:
+        sched = (block.get("scheduledTime") or {}).get("utc")
+        revised = (block.get("revisedTime") or block.get("runwayTime") or {}).get("utc")
+        if not sched or not revised:
+            return None
+        try:
+            from datetime import datetime
+            fmt = "%Y-%m-%d %H:%MZ"
+            diff = datetime.strptime(revised, fmt) - datetime.strptime(sched, fmt)
+            mins = int(diff.total_seconds() / 60)
+            return mins if mins > 0 else None
+        except Exception:
+            return None
+
     return {
         "flightNumber": flight_number,
         "arrivalTimeLocal": arrival_time_local,
         "arrivalTimeUtc": arrival_time_utc,
         "status": flight.get("status", "Unknown"),
-        "delayMinutes": arrival.get("delay"),
+        "delayMinutes": _delay_minutes(arrival),
         "origin": departure.get("airport", {}).get("iata"),
+        "destination": arrival.get("airport", {}).get("iata"),
         "airline": {
             "iata": airline_raw.get("iata", ""),
             "name": airline_raw.get("name", ""),
@@ -132,6 +174,7 @@ def _mock_response(flight_number: str, flight_date: str) -> dict:
         "status": "Scheduled",
         "delayMinutes": None,
         "origin": "FCO",
+        "destination": "MXP",
         "airline": {"iata": prefix, "name": airline_name, "nameIT": airline_name},
     }
 

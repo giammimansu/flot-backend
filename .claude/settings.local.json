@@ -25,7 +25,12 @@
       "Bash(aws logs *)",
       "Bash(grep -v \"^$\")",
       "Bash(aws dynamodb *)",
-      "PowerShell(aws logs tail *)"
+      "PowerShell(aws logs tail *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\gianm\\\\Desktop\\\\MyApps\\\\flot-frontend\" -Exclude \"node_modules\")",
+      "Bash(Select-Object Name)",
+      "Bash(sam validate *)",
+      "Bash(sam deploy *)",
+      "PowerShell(sam deploy *)"
     ]
   }
 }

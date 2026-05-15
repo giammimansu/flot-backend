@@ -250,6 +250,8 @@ def find_best_match(query_trip: dict, query_user: dict) -> "MatchResult | None":
         for c in candidates:
             if c["pk"] == query_trip["pk"]:
                 continue
+            if c["userId"] == query_trip["userId"]:
+                continue
             if c.get("status") not in ("scheduled", None):
                 continue
             if not can_match_direction(query_trip, c):

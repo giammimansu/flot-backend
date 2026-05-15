@@ -354,6 +354,8 @@ def build_compatibility_matrix(
         for j, trip_b in enumerate(pool):
             if j <= i:
                 continue
+            if trip_a["userId"] == trip_b["userId"]:
+                continue
             if not can_match_direction(trip_a, trip_b):
                 continue
             if "destLat" not in trip_a or "destLat" not in trip_b:

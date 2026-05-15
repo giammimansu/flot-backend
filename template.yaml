@@ -971,17 +971,49 @@ Resources:
       Timeout: 5
       Environment:
         Variables:
-          AERODATABOX_API_KEY: !If [IsDev, "", !Sub "{{resolve:ssm:/flot/${Stage}/aerodatabox-key}}"]
-          FLIGHT_TRACKER_PROVIDER: !If [IsDev, "mock", "aerodatabox"]
+          AERODATABOX_SSM_KEY: !Sub "/flot/${Stage}/aerodatabox-key"
+          FLIGHT_TRACKER_PROVIDER: aerodatabox
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref FlotTable
+        - Statement:
+            Effect: Allow
+            Action: ssm:GetParameter
+            Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/flot/${Stage}/aerodatabox-key"
       Events:
         FlightLookup:
           Type: Api
           Properties:
             RestApiId: !Ref FlotApi
             Path: /flights/lookup
+            Method: GET
+
+  # ── Flight Search (UI autocomplete) ──────────────────────────────
+
+  FlightSearchFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-flight-search-${Stage}
+      Handler: handlers.flights.search_flights.handler
+      CodeUri: src/
+      Description: GET /flights/search — autocomplete proxy for check-in UI
+      MemorySize: 128
+      Timeout: 3
+      Environment:
+        Variables:
+          AERODATABOX_SSM_KEY: !Sub "/flot/${Stage}/aerodatabox-key"
+          FLIGHT_TRACKER_PROVIDER: aerodatabox
+      Policies:
+        - Statement:
+            Effect: Allow
+            Action: ssm:GetParameter
+            Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/flot/${Stage}/aerodatabox-key"
+      Events:
+        FlightSearch:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FlotApi
+            Path: /flights/search
             Method: GET
 
   # ── v4 — flight.delayed / flight.advanced handler ─────────────────
