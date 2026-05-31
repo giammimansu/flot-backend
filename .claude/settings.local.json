@@ -30,7 +30,10 @@
       "Bash(Select-Object Name)",
       "Bash(sam validate *)",
       "Bash(sam deploy *)",
-      "PowerShell(sam deploy *)"
+      "PowerShell(sam deploy *)",
+      "Bash(TABLE_NAME=Flot-dev AWS_DEFAULT_REGION=eu-south-1 python *)",
+      "Bash(python3 -c ' *)",
+      "Bash(aws s3api get-bucket-notification-configuration *)"
     ]
   }
 }

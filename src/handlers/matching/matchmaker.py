@@ -54,9 +54,47 @@ def handler(event: dict, context) -> dict:
 
 
 def process_airport_v4(airport: AirportConfig, now: datetime) -> tuple[int, int]:
+    expire_stale_trips(airport.code, now)
     locked = process_lock_window(airport, now)
     tentative = optimize_pool(airport, now)
     return locked, tentative
+
+
+def expire_stale_trips(airport_code: str, now: datetime) -> None:
+    """Expire scheduled/tentative_match trips whose flightTime <= now with no match."""
+    now_iso = now.isoformat().replace("+00:00", "Z")
+    expired_count = 0
+
+    for status in ("scheduled", "tentative_match"):
+        trips = dynamo.query_gsi(
+            index_name="GSI5-TripStatus",
+            pk_name="gsi5pk",
+            pk_value=f"{airport_code}#{status}",
+        )
+        for trip in trips:
+            if trip.get("flightTime", "") <= now_iso:
+                tm_id = trip.get("tentativeMatchId")
+                if tm_id:
+                    tm = dynamo.get_item(f"TENTATIVE_MATCH#{tm_id}", "META")
+                    if tm:
+                        other_id = tm["tripId2"] if tm["tripId1"] == trip["tripId"] else tm["tripId1"]
+                        other_trip = dynamo.get_item(f"TRIP#{other_id}", "META")
+                        if other_trip:
+                            dynamo.dissolve_tentative_match(tm_id, trip, other_trip)
+                            put_event("match.tentative_dissolved", {
+                                "matchId": tm_id,
+                                "tripId1": trip["tripId"],
+                                "tripId2": other_id,
+                                "reason": "trip_expired",
+                            })
+                            # Re-fetch trip after dissolve (status was reset to scheduled)
+                            trip = dynamo.get_item(trip["pk"], "META") or trip
+                expire_trip(trip)
+                expired_count += 1
+                metrics.add_metric(name="TripsExpired", unit=MetricUnit.Count, value=1)
+
+    if expired_count:
+        logger.info("stale_trips_expired", airport=airport_code, count=expired_count)
 
 
 # ── Step 1: Lock window ───────────────────────────────────────────────
@@ -98,11 +136,23 @@ def _promote_tentative_to_match(
     match_item = build_match_item(trip_a, trip_b, float(tm.get("score", 0)))
     table_name = os.environ["TABLE_NAME"]
 
-    locked_a = {k: v for k, v in trip_a.items() if k not in ("gsi5pk", "gsi1pk")}
-    locked_a.update({"status": "matched", "tentativeMatchId": None, "matchId": match_item["matchId"]})
+    # Keep gsi5pk = "{airport}#matched" so dissolve/expire checker can find these
+    # via GSI5 (gsi5sk = flightTime). Drop gsi1pk to remove from the active pool index.
+    locked_a = {k: v for k, v in trip_a.items() if k not in ("gsi1pk",)}
+    locked_a.update({
+        "status": "matched",
+        "tentativeMatchId": None,
+        "matchId": match_item["matchId"],
+        "gsi5pk": f"{airport.code}#matched",
+    })
 
-    locked_b = {k: v for k, v in trip_b.items() if k not in ("gsi5pk", "gsi1pk")}
-    locked_b.update({"status": "matched", "tentativeMatchId": None, "matchId": match_item["matchId"]})
+    locked_b = {k: v for k, v in trip_b.items() if k not in ("gsi1pk",)}
+    locked_b.update({
+        "status": "matched",
+        "tentativeMatchId": None,
+        "matchId": match_item["matchId"],
+        "gsi5pk": f"{airport.code}#matched",
+    })
 
     try:
         dynamo.transact_write([
@@ -233,11 +283,13 @@ def _query_active_pool(airport_code: str, now: datetime) -> list[dict]:
         pk_name="gsi5pk",
         pk_value=f"{airport_code}#tentative_match",
     )
+    now_iso = now.isoformat().replace("+00:00", "Z")
     # Exclude tentative trips already inside lock window (process_lock_window handles those)
     active_tentative = [t for t in tentative if t.get("flightTime", "") > lock_cutoff]
     pool = scheduled + active_tentative
     # tracking_pending trips have no valid ETA — exclude from matching
-    return [t for t in pool if t.get("status") != "tracking_pending"]
+    # Exclude trips whose flight has already departed
+    return [t for t in pool if t.get("status") != "tracking_pending" and t.get("flightTime", "") >= now_iso]
 
 
 def _dissolve_stale_tentative(
@@ -286,11 +338,23 @@ def _create_direct_match(
     table_name = os.environ["TABLE_NAME"]
     match_item = build_match_item(trip_a, trip_b, score)
 
-    locked_a = {k: v for k, v in trip_a.items() if k not in ("gsi5pk", "gsi1pk")}
-    locked_a.update({"status": "matched", "tentativeMatchId": None, "matchId": match_item["matchId"]})
+    # Keep gsi5pk = "{airport}#matched" so dissolve/expire checker can find these
+    # via GSI5 (gsi5sk = flightTime). Drop gsi1pk to remove from the active pool index.
+    locked_a = {k: v for k, v in trip_a.items() if k not in ("gsi1pk",)}
+    locked_a.update({
+        "status": "matched",
+        "tentativeMatchId": None,
+        "matchId": match_item["matchId"],
+        "gsi5pk": f"{airport.code}#matched",
+    })
 
-    locked_b = {k: v for k, v in trip_b.items() if k not in ("gsi5pk", "gsi1pk")}
-    locked_b.update({"status": "matched", "tentativeMatchId": None, "matchId": match_item["matchId"]})
+    locked_b = {k: v for k, v in trip_b.items() if k not in ("gsi1pk",)}
+    locked_b.update({
+        "status": "matched",
+        "tentativeMatchId": None,
+        "matchId": match_item["matchId"],
+        "gsi5pk": f"{airport.code}#matched",
+    })
 
     try:
         dynamo.transact_write([

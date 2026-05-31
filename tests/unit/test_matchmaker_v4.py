@@ -60,10 +60,10 @@ def _make_tm(tm_id, trip_id_1, trip_id_2, lock_hours_from_now=-1):
         "pk": f"TENTATIVE_MATCH#{tm_id}",
         "sk": "META",
         "matchId": tm_id,
-        "tripId1": trip_id_1,
+        "tripId1": "38957676-8512-4501-b558-1d135929f562",
         "tripId2": trip_id_2,
-        "userId1": f"user-{trip_id_1}",
-        "userId2": f"user-{trip_id_2}",
+        "userId1": f"46fea2c0-9051-7056-8bd7-b7bad07bf362",
+        "userId2": f"fake-test-passenger-001",
         "airportCode": "MXP",
         "score": 0.75,
         "distKm": 1.5,
@@ -328,3 +328,94 @@ def test_shadow_pool_rematch_b_c_over_a_b():
     assigned_pairs = [(r[0], r[1]) for r in assignments]
     assert ("b", "c") in assigned_pairs
     assert ("a", "b") not in assigned_pairs
+
+
+# ── Forced match: real user ↔ fake-test-passenger-001 ─────────────────
+
+REAL_USER_ID = "46fea2c0-9051-7056-8bd7-b7bad07bf362"
+REAL_TRIP_ID = "38957676-8512-4501-b558-1d135929f562"
+FAKE_PASSENGER_ID = "fake-test-passenger-001"
+FAKE_TRIP_ID = "fake-trip-passenger-001"
+
+
+def _make_real_user_trip(flight_hours=24):
+    now = _now()
+    flight_time = _iso(now + timedelta(hours=flight_hours))
+    return {
+        "pk": f"TRIP#{REAL_TRIP_ID}",
+        "sk": "META",
+        "tripId": REAL_TRIP_ID,
+        "userId": REAL_USER_ID,
+        "airportCode": "MXP",
+        "status": "scheduled",
+        "flightTime": flight_time,
+        "direction": "TO_MILAN",
+        "destLat": 45.464,
+        "destLng": 9.190,
+        "timeBucket": flight_time[:16] + ":00Z",
+        "gsi5pk": "MXP#scheduled",
+        "createdAt": _iso(now),
+    }
+
+
+def _make_fake_passenger_trip(flight_hours=24):
+    now = _now()
+    flight_time = _iso(now + timedelta(hours=flight_hours))
+    return {
+        "pk": f"TRIP#{FAKE_TRIP_ID}",
+        "sk": "META",
+        "tripId": FAKE_TRIP_ID,
+        "userId": FAKE_PASSENGER_ID,
+        "airportCode": "MXP",
+        "status": "scheduled",
+        "flightTime": flight_time,
+        "direction": "TO_MILAN",
+        "destLat": 45.466,   # ~300m from real user dest → high distance score
+        "destLng": 9.192,
+        "timeBucket": flight_time[:16] + ":00Z",
+        "gsi5pk": "MXP#scheduled",
+        "createdAt": _iso(now),
+    }
+
+
+def test_forced_match_real_user_vs_fake_passenger_creates_tentative():
+    """
+    Verifica che l'optimizer crei un TentativeMatch tra l'utente reale
+    46fea2c0... e fake-test-passenger-001, usando trip sintetico per il fake.
+    """
+    now = _now()
+    trip_real = _make_real_user_trip(flight_hours=24)
+    trip_fake = _make_fake_passenger_trip(flight_hours=24)
+
+    with patch("handlers.matching.matchmaker._query_active_pool", return_value=[trip_real, trip_fake]), \
+         patch("handlers.matching.matchmaker.dynamo.get_item", return_value={"lang": "it", "verified": True}), \
+         patch("handlers.matching.matchmaker.dynamo.get_tentative_match_between", return_value=None), \
+         patch("handlers.matching.matchmaker.dynamo.create_tentative_match") as mock_create_tm, \
+         patch("handlers.matching.matchmaker.dynamo.update_item"):
+
+        tentative = optimize_pool(_mxp(), now)
+
+    # Con 24h al volo threshold = 0.35; destLat diff ~300m → score ~0.6+
+    assert tentative >= 1, f"Atteso >= 1 TentativeMatch, got {tentative}"
+    mock_create_tm.assert_called_once()
+    call_kwargs = mock_create_tm.call_args
+    trip_ids = {call_kwargs[0][0]["tripId"], call_kwargs[0][1]["tripId"]}
+    assert REAL_TRIP_ID in trip_ids
+    assert FAKE_TRIP_ID in trip_ids
+
+
+def test_forced_match_real_user_vs_fake_passenger_score_above_threshold():
+    """Verifica che lo score calcolato superi il dynamic threshold per 24h."""
+    from lib.matching import compute_match_score, compute_dynamic_threshold
+    from lib.airports import get_airport
+
+    now = _now()
+    trip_real = _make_real_user_trip(flight_hours=24)
+    trip_fake = _make_fake_passenger_trip(flight_hours=24)
+    airport = get_airport("MXP")
+
+    user_profile = {"lang": "it", "verified": True}
+    score = compute_match_score(trip_real, trip_fake, user_profile, user_profile, mode="scheduled")
+    threshold = compute_dynamic_threshold(airport.match_threshold, trip_real["flightTime"], trip_fake["flightTime"], now)
+
+    assert score >= threshold, f"Score {score:.3f} sotto threshold {threshold:.3f}"

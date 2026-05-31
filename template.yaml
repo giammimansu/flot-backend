@@ -861,7 +861,7 @@ Resources:
       Description: EventBridge — match.found — WS notification
       Environment:
         Variables:
-          WS_ENDPOINT: "" # To be provided when WS API is added
+          WS_ENDPOINT: !Sub "https://${FlotWsApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref FlotTable
@@ -1164,6 +1164,27 @@ Resources:
               detail-type:
                 - match.dissolved
 
+  OnMatchExpiredFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-on-match-expired-${Stage}
+      Handler: handlers.events.on_match_expired.handler
+      CodeUri: src/
+      Description: EventBridge — match.expired
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+      Events:
+        EventBridgeRule:
+          Type: CloudWatchEvent
+          Properties:
+            EventBusName: !Ref FlotEventBus
+            Pattern:
+              source:
+                - flot-backend
+              detail-type:
+                - match.expired
+
   MatchDissolveCheckerFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -1204,6 +1225,230 @@ Resources:
                   - !GetAtt UnlockTimeoutFunction.Arn
                   - !GetAtt UnlockReminderFunction.Arn
 
+  # ── WebSocket API Gateway ──────────────────────────────────────────
+
+  FlotWsApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub flot-ws-${Stage}
+      ProtocolType: WEBSOCKET
+      RouteSelectionExpression: "$request.body.action"
+
+  FlotWsStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref FlotWsApi
+      StageName: !Ref Stage
+      AutoDeploy: true
+      DefaultRouteSettings:
+        DataTraceEnabled: false
+        LoggingLevel: OFF
+        ThrottlingBurstLimit: 100
+        ThrottlingRateLimit: 50
+
+  # ── WebSocket Lambda Functions ─────────────────────────────────────
+
+  WsConnectFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-ws-connect-${Stage}
+      Handler: handlers.websocket.connect.handler
+      CodeUri: src/
+      Description: WebSocket $connect — JWT validation + CONN# storage
+      Environment:
+        Variables:
+          USER_POOL_ID: !Ref FlotUserPool
+          USER_POOL_CLIENT_ID: !Ref FlotUserPoolClient
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+
+  WsDisconnectFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-ws-disconnect-${Stage}
+      Handler: handlers.websocket.disconnect.handler
+      CodeUri: src/
+      Description: WebSocket $disconnect — remove CONN# record
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+
+  WsDefaultFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-ws-default-${Stage}
+      Handler: handlers.websocket.default.handler
+      CodeUri: src/
+      Description: WebSocket $default — catch-all unknown actions
+      Environment:
+        Variables:
+          WS_ENDPOINT: !Sub "https://${FlotWsApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+        - Statement:
+            Effect: Allow
+            Action: execute-api:ManageConnections
+            Resource: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${FlotWsApi}/${Stage}/*"
+
+  WsChatMessageFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-ws-chat-${Stage}
+      Handler: handlers.websocket.chat_message.handler
+      CodeUri: src/
+      Description: WebSocket chat_message — relay real-time chat
+      Environment:
+        Variables:
+          WS_ENDPOINT: !Sub "https://${FlotWsApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+        - Statement:
+            Effect: Allow
+            Action: execute-api:ManageConnections
+            Resource: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${FlotWsApi}/${Stage}/*"
+
+  WsTypingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-ws-typing-${Stage}
+      Handler: handlers.websocket.typing.handler
+      CodeUri: src/
+      Description: WebSocket typing — relay typing indicator
+      Environment:
+        Variables:
+          WS_ENDPOINT: !Sub "https://${FlotWsApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+        - Statement:
+            Effect: Allow
+            Action: execute-api:ManageConnections
+            Resource: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${FlotWsApi}/${Stage}/*"
+
+  # ── WebSocket Integrations ─────────────────────────────────────────
+
+  WsConnectIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref FlotWsApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WsConnectFunction.Arn}/invocations"
+
+  WsDisconnectIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref FlotWsApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WsDisconnectFunction.Arn}/invocations"
+
+  WsDefaultIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref FlotWsApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WsDefaultFunction.Arn}/invocations"
+
+  WsChatMessageIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref FlotWsApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WsChatMessageFunction.Arn}/invocations"
+
+  WsTypingIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref FlotWsApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WsTypingFunction.Arn}/invocations"
+
+  # ── WebSocket Routes ───────────────────────────────────────────────
+
+  WsConnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref FlotWsApi
+      RouteKey: "$connect"
+      AuthorizationType: NONE
+      Target: !Sub "integrations/${WsConnectIntegration}"
+
+  WsDisconnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref FlotWsApi
+      RouteKey: "$disconnect"
+      AuthorizationType: NONE
+      Target: !Sub "integrations/${WsDisconnectIntegration}"
+
+  WsDefaultRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref FlotWsApi
+      RouteKey: "$default"
+      AuthorizationType: NONE
+      Target: !Sub "integrations/${WsDefaultIntegration}"
+
+  WsChatMessageRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref FlotWsApi
+      RouteKey: "chat_message"
+      AuthorizationType: NONE
+      Target: !Sub "integrations/${WsChatMessageIntegration}"
+
+  WsTypingRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref FlotWsApi
+      RouteKey: "typing"
+      AuthorizationType: NONE
+      Target: !Sub "integrations/${WsTypingIntegration}"
+
+  # ── WebSocket Lambda Permissions ───────────────────────────────────
+
+  WsConnectPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref WsConnectFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${FlotWsApi}/*"
+
+  WsDisconnectPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref WsDisconnectFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${FlotWsApi}/*"
+
+  WsDefaultPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref WsDefaultFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${FlotWsApi}/*"
+
+  WsChatMessagePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref WsChatMessageFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${FlotWsApi}/*"
+
+  WsTypingPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref WsTypingFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${FlotWsApi}/*"
+
 # ─────────────────────────────────────────────────────────────────────
 # Outputs
 # ─────────────────────────────────────────────────────────────────────
@@ -1236,3 +1481,9 @@ Outputs:
   CDNDomain:
     Description: CloudFront distribution domain
     Value: !GetAtt MediaCDN.DomainName
+
+  WsApiUrl:
+    Description: WebSocket API endpoint
+    Value: !Sub "wss://${FlotWsApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+    Export:
+      Name: !Sub "flot-ws-endpoint-${Stage}"

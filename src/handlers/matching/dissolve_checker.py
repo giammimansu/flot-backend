@@ -12,7 +12,12 @@ logger = Logger()
 def handler(event, context):
     airports = get_active_airports()
     now = datetime.now(timezone.utc)
+    now_iso_str = now.isoformat().replace("+00:00", "Z")
     dissolved_count = 0
+    expired_count = 0
+
+    # Match states that are already terminal — no dissolve/expire needed.
+    TERMINAL = ("completed", "expired", "dissolved", "unlock_expired", "cancelled")
 
     for airport in airports:
         # Trova match in stato 'pending' per questo aeroporto
@@ -39,12 +44,28 @@ def handler(event, context):
             # Fetch match
             match_resp = table.get_item(Key={"pk": f"MATCH#{match_id}", "sk": "META"})
             match = match_resp.get("Item")
-            if not match or match["status"] != "pending":
+            if not match or match["status"] in TERMINAL:
                 continue
-                
+
+            # 1. Flight already departed and match never reached "completed" → expire it.
+            #    Applies to any non-terminal status (pending/partially_unlocked/unlocked).
+            flight_time = trip.get("flightTime", "")
+            if flight_time and flight_time <= now_iso_str:
+                put_event("match.expired", {
+                    "matchId": match_id,
+                    "reason": "flight_departed",
+                })
+                expired_count += 1
+                logger.info("scheduled_expire_emitted", matchId=match_id, flightTime=flight_time)
+                continue
+
+            # 2. Still pending and nobody responded within the window → dissolve & re-pool.
+            if match["status"] != "pending":
+                continue
+
             created_at = datetime.fromisoformat(match["createdAt"].replace("Z", "+00:00"))
             hours_since_creation = (now - created_at).total_seconds() / 3600
-            
+
             if hours_since_creation >= airport.unlock_no_response_dissolve_hours:
                 put_event("match.dissolved", {
                     "matchId": match_id,
@@ -52,5 +73,5 @@ def handler(event, context):
                 })
                 dissolved_count += 1
                 logger.info("scheduled_dissolve_emitted", matchId=match_id, hours=hours_since_creation)
-                
-    logger.info("dissolve_checker_completed", dissolvedCount=dissolved_count)
+
+    logger.info("dissolve_checker_completed", dissolvedCount=dissolved_count, expiredCount=expired_count)

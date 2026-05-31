@@ -1,3 +1,4 @@
+import json
 import os
 from datetime import datetime, timedelta, timezone
 
@@ -6,19 +7,13 @@ from boto3.dynamodb.conditions import Attr
 
 from lib.airports import get_airport
 from lib.dynamo import get_match, get_trip, get_user, table, now_iso
-from lib.events import put_event
-from lib.auth import get_user_id
-from lib.errors import AppError
-from lib.validation import validate
-from pydantic import BaseModel
-from aws_lambda_powertools import Logger
+from lib.eventbridge import put_event
+from lib.http import AppError, app_handler, success
 from lib.schedulers import create_unlock_timeout_schedule, cancel_unlock_timeout_schedule
+from aws_lambda_powertools import Logger
 
 logger = Logger()
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
-
-class UnlockRequest(BaseModel):
-    matchId: str
 
 def record_fake_door_intent(user_id: str, match_id: str):
     logger.info("fake_door_unlock_intent", userId=user_id, matchId=match_id)
@@ -37,12 +32,19 @@ def save_payment(user_id: str, match_id: str, intent_id: str, airport):
     )
 
 @logger.inject_lambda_context
+@app_handler(requires_auth=True)
 def handler(event, context):
-    user_id = get_user_id(event)
-    body = validate(UnlockRequest, event.get("body", "{}"))
-    match = get_match(body.matchId)
-    trip_id = event["pathParameters"]["tripId"]
-    trip = get_trip(trip_id)
+    user_id: str = event["_user_id"]
+    origin: str | None = event.get("_origin")
+    body = json.loads(event.get("body") or "{}")
+    match_id = body.get("matchId")
+    if not match_id:
+        raise AppError(400, "Missing matchId")
+    match = get_match(match_id)
+    if not match:
+        raise AppError(404, "Match not found")
+    trip_id = (event.get("pathParameters") or {}).get("tripId")
+    trip = get_trip(trip_id) if trip_id else None
     airport = get_airport(match["airportCode"])
 
     # Validazioni
@@ -55,31 +57,69 @@ def handler(event, context):
     if user_id not in (match["userId1"], match["userId2"]):
         raise AppError(403, "Not your match")
 
-    # FAKE_DOOR_MODE check
-    if os.environ.get("FAKE_DOOR_MODE") == "true":
-        # Registra intent senza Stripe
-        record_fake_door_intent(user_id, match["matchId"])
-        return {"fakeDoor": True, "message": "Coming soon"}
+    # BETA_MODE: unlock gratuito per i primi utenti, senza Stripe né scheduler
+    if os.environ.get("BETA_MODE") == "true":
+        now = datetime.now(timezone.utc)
+        unlocked_by = match.get("unlockedBy", []) + [user_id]
+        new_status = "unlocked" if len(unlocked_by) >= 2 else "partially_unlocked"
 
-    # Crea PaymentIntent con capture manuale
-    intent = stripe.PaymentIntent.create(
-        amount=airport.unlock_fee,
-        currency=airport.currency.lower(),
-        capture_method="manual",
-        metadata={
-            "matchId": match["matchId"],
-            "userId": user_id,
-            "tripId": trip["tripId"],
-            "airportCode": airport.code,
-        },
-    )
+        table.update_item(
+            Key={"pk": match["pk"], "sk": "META"},
+            UpdateExpression=(
+                "SET #status = :status, "
+                "unlockedBy = :ub, "
+                "updatedAt = :ua"
+            ),
+            ExpressionAttributeNames={"#status": "status"},
+            ExpressionAttributeValues={
+                ":status": new_status,
+                ":ub": unlocked_by,
+                ":ua": now.isoformat(),
+            },
+        )
+
+        logger.info("beta_unlock", matchId=match["matchId"], userId=user_id, newStatus=new_status)
+
+        if new_status == "unlocked":
+            try:
+                put_event("payment.completed", {
+                    "matchId": match["matchId"],
+                    "userId1": match["userId1"],
+                    "userId2": match["userId2"],
+                    "beta": True,
+                })
+            except Exception:
+                pass  # event bus opzionale in beta
+
+        return success({"success": True, "matchStatus": new_status}, origin)
+
+    # Crea PaymentIntent con capture manuale (stub se Stripe non configurato)
+    stripe_key = os.environ.get("STRIPE_SECRET_KEY")
+    if stripe_key:
+        intent = stripe.PaymentIntent.create(
+            amount=airport.unlock_fee,
+            currency=airport.currency.lower(),
+            capture_method="manual",
+            metadata={
+                "matchId": match["matchId"],
+                "userId": user_id,
+                "tripId": trip["tripId"] if trip else "",
+                "airportCode": airport.code,
+            },
+        )
+    else:
+        import uuid as _uuid
+
+        class _StubIntent:
+            id = f"pi_stub_{_uuid.uuid4().hex[:12]}"
+            client_secret = f"{id}_secret_stub"
+
+        intent = _StubIntent()
 
     now = datetime.now(timezone.utc)
     unlocked_by = match.get("unlockedBy", []) + [user_id]
 
     if len(unlocked_by) == 1:
-        # ── PRIMO UNLOCK ──
-        # Auth hold attivo, ma nessun capture
         deadline = now + timedelta(minutes=airport.unlock_timeout_minutes)
 
         table.update_item(
@@ -101,12 +141,10 @@ def handler(event, context):
                 ":fpi": intent.id,
                 ":ua": now.isoformat(),
             },
-            ConditionExpression=Attr("status").eq("pending"),  # idempotenza
+            ConditionExpression=Attr("status").eq("pending"),
         )
 
-        # Emetti evento per notifica urgente al partner
         partner_id = match["userId2"] if user_id == match["userId1"] else match["userId1"]
-        partner_user = get_user(partner_id)
         unlocking_user = get_user(user_id)
 
         put_event("match.partially_unlocked", {
@@ -119,7 +157,6 @@ def handler(event, context):
             "reminderIntervals": airport.unlock_reminder_intervals,
         })
 
-        # Crea EventBridge Scheduler one-shot per il timeout
         create_unlock_timeout_schedule(
             match_id=match["matchId"],
             fire_at=deadline,
@@ -132,18 +169,16 @@ def handler(event, context):
         )
 
     elif len(unlocked_by) == 2:
-        # ── SECONDO UNLOCK — CAPTURE SIMULTANEO ──
-        first_pi_id = match["firstUnlockPaymentIntentId"]
+        first_pi_id = match.get("firstUnlockPaymentIntentId", "")
 
-        # Capture entrambi in transazione
-        try:
-            stripe.PaymentIntent.capture(first_pi_id)
-            stripe.PaymentIntent.capture(intent.id)
-        except stripe.error.StripeError as e:
-            # Se il capture del primo fallisce (expired?), void il secondo
-            logger.error("capture_failed", matchId=match["matchId"], error=str(e))
-            stripe.PaymentIntent.cancel(intent.id)
-            raise AppError(500, "Payment capture failed. No charges applied.")
+        if stripe_key:
+            try:
+                stripe.PaymentIntent.capture(first_pi_id)
+                stripe.PaymentIntent.capture(intent.id)
+            except stripe.error.StripeError as e:
+                logger.error("capture_failed", matchId=match["matchId"], error=str(e))
+                stripe.PaymentIntent.cancel(intent.id)
+                raise AppError(500, "Payment capture failed. No charges applied.")
 
         table.update_item(
             Key={"pk": match["pk"], "sk": "META"},
@@ -163,10 +198,8 @@ def handler(event, context):
             ConditionExpression=Attr("status").eq("partially_unlocked"),
         )
 
-        # Cancella il timeout scheduler (non serve più)
         cancel_unlock_timeout_schedule(match["matchId"])
 
-        # Emetti payment.completed per entrambi
         put_event("payment.completed", {
             "matchId": match["matchId"],
             "userId1": match["userId1"],
@@ -175,15 +208,11 @@ def handler(event, context):
 
         logger.info("match_fully_unlocked", matchId=match["matchId"])
 
-    # Salva Payment record
     save_payment(user_id, match["matchId"], intent.id, airport)
 
-    return {
-        "statusCode": 200,
-        "body": {
-            "paymentIntentClientSecret": intent.client_secret,
-            "amount": airport.unlock_fee,
-            "currency": airport.currency.lower(),
-            "matchStatus": "partially_unlocked" if len(unlocked_by) == 1 else "unlocked",
-        }
-    }
+    return success({
+        "paymentIntentClientSecret": intent.client_secret,
+        "amount": airport.unlock_fee,
+        "currency": airport.currency.lower(),
+        "matchStatus": "partially_unlocked" if len(unlocked_by) == 1 else "unlocked",
+    }, origin)
