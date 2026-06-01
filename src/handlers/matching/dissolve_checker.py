@@ -1,20 +1,29 @@
+import os
 from datetime import datetime, timedelta, timezone
 
 from boto3.dynamodb.conditions import Key, Attr
 from lib.airports import get_active_airports
 from lib.dynamo import table, now_iso
-from lib.events import put_event
+from lib.eventbridge import put_event
 from aws_lambda_powertools import Logger
 
 logger = Logger()
+
+# Hours to wait after flightTime before declaring an unlocked match "completed"
+# (gives the shared flight time to depart/land before asking for a review).
+COMPLETION_TOLERANCE_HOURS = int(os.environ.get("COMPLETION_TOLERANCE_HOURS", "2"))
 
 @logger.inject_lambda_context
 def handler(event, context):
     airports = get_active_airports()
     now = datetime.now(timezone.utc)
     now_iso_str = now.isoformat().replace("+00:00", "Z")
+    completion_cutoff_iso = (
+        now - timedelta(hours=COMPLETION_TOLERANCE_HOURS)
+    ).isoformat().replace("+00:00", "Z")
     dissolved_count = 0
     expired_count = 0
+    completed_count = 0
 
     # Match states that are already terminal — no dissolve/expire needed.
     TERMINAL = ("completed", "expired", "dissolved", "unlock_expired", "cancelled")
@@ -47,16 +56,28 @@ def handler(event, context):
             if not match or match["status"] in TERMINAL:
                 continue
 
-            # 1. Flight already departed and match never reached "completed" → expire it.
-            #    Applies to any non-terminal status (pending/partially_unlocked/unlocked).
+            # 1. Flight has departed. Branch on whether the connection was unlocked.
             flight_time = trip.get("flightTime", "")
             if flight_time and flight_time <= now_iso_str:
-                put_event("match.expired", {
-                    "matchId": match_id,
-                    "reason": "flight_departed",
-                })
-                expired_count += 1
-                logger.info("scheduled_expire_emitted", matchId=match_id, flightTime=flight_time)
+                if match["status"] == "unlocked":
+                    # Happy path: connection established. Complete after tolerance so the
+                    # flight has actually flown before we ask for a review.
+                    if flight_time <= completion_cutoff_iso:
+                        put_event("trip.completed", {
+                            "matchId": match_id,
+                            "reason": "flight_departed",
+                        })
+                        completed_count += 1
+                        logger.info("scheduled_complete_emitted", matchId=match_id, flightTime=flight_time)
+                    # else: still inside tolerance window — wait for next run.
+                else:
+                    # Never unlocked (pending/partially_unlocked) → expire.
+                    put_event("match.expired", {
+                        "matchId": match_id,
+                        "reason": "flight_departed",
+                    })
+                    expired_count += 1
+                    logger.info("scheduled_expire_emitted", matchId=match_id, flightTime=flight_time)
                 continue
 
             # 2. Still pending and nobody responded within the window → dissolve & re-pool.
@@ -74,4 +95,9 @@ def handler(event, context):
                 dissolved_count += 1
                 logger.info("scheduled_dissolve_emitted", matchId=match_id, hours=hours_since_creation)
 
-    logger.info("dissolve_checker_completed", dissolvedCount=dissolved_count, expiredCount=expired_count)
+    logger.info(
+        "dissolve_checker_completed",
+        dissolvedCount=dissolved_count,
+        expiredCount=expired_count,
+        completedCount=completed_count,
+    )

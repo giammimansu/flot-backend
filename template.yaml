@@ -1185,6 +1185,32 @@ Resources:
               detail-type:
                 - match.expired
 
+  OnTripCompletedFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-on-trip-completed-${Stage}
+      Handler: handlers.events.on_trip_completed.handler
+      CodeUri: src/
+      Description: EventBridge — trip.completed
+      Environment:
+        Variables:
+          EVENT_BUS_NAME: !Ref FlotEventBus
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref FlotEventBus
+      Events:
+        EventBridgeRule:
+          Type: CloudWatchEvent
+          Properties:
+            EventBusName: !Ref FlotEventBus
+            Pattern:
+              source:
+                - flot-backend
+              detail-type:
+                - trip.completed
+
   MatchDissolveCheckerFunction:
     Type: AWS::Serverless::Function
     Properties:
