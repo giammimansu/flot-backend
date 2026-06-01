@@ -66,6 +66,7 @@ def handler(event: dict, context) -> dict:
         "lang": "it",
         "gender": None,
         "ageGroup": None,
+        "onboarding": False,
         "createdAt": now,
         "updatedAt": now,
         "gsi2pk": user_id,

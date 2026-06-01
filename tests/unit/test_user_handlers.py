@@ -65,6 +65,30 @@ class TestPostConfirmation:
         # Should return event without creating a user
         assert result == event
 
+    @mock_aws
+    def test_creates_user_with_onboarding_false(self, dynamodb_table, lambda_context):
+        """PostConfirmation deve creare utente con onboarding=False."""
+        import importlib
+        import lib.dynamo as dynamo_module
+        importlib.reload(dynamo_module)
+
+        from handlers.auth.post_confirmation import handler
+
+        event = build_cognito_event(
+            user_id="user-xyz-789",
+            email="test-onboarding@example.com",
+            name="Test Onboarding User",
+        )
+
+        handler(event, lambda_context)
+
+        item = dynamodb_table.get_item(
+            Key={"pk": "USER#user-xyz-789", "sk": "PROFILE"}
+        ).get("Item")
+
+        assert item is not None
+        assert item["onboarding"] is False
+
 
 class TestGetProfile:
     """Tests for handlers/users/get_profile.py."""
@@ -140,6 +164,36 @@ class TestGetProfile:
         result = handler(event, lambda_context)
 
         assert "Access-Control-Allow-Origin" in result["headers"]
+
+    @mock_aws
+    def test_onboarding_in_get_profile_response(self, dynamodb_table, lambda_context):
+        """GET /users/me deve includere il campo onboarding."""
+        import importlib
+        import lib.dynamo as dynamo_module
+        importlib.reload(dynamo_module)
+
+        from handlers.users.get_profile import handler
+
+        # Seed a user with onboarding=False
+        dynamodb_table.put_item(Item={
+            "pk": "USER#test-user-id-123",
+            "sk": "PROFILE",
+            "userId": "test-user-id-123",
+            "email": "test@example.com",
+            "name": "Test User",
+            "isPro": False,
+            "verified": False,
+            "lang": "it",
+            "onboarding": False,
+            "createdAt": "2026-04-24T10:00:00Z",
+        })
+
+        event = build_api_event(method="GET", path="/users/me")
+        result = handler(event, lambda_context)
+
+        assert result["statusCode"] == 200
+        body = json.loads(result["body"])
+        assert body["onboarding"] is False
 
 
 class TestUpdateProfile:
@@ -224,3 +278,43 @@ class TestUpdateProfile:
         result = handler(event, lambda_context)
 
         assert result["statusCode"] == 400
+
+    @mock_aws
+    def test_onboarding_set_to_true(self, dynamodb_table, lambda_context):
+        """PUT /users/me con { onboarding: true } deve aggiornare il campo."""
+        import importlib
+        import lib.dynamo as dynamo_module
+        importlib.reload(dynamo_module)
+
+        from handlers.users.update_profile import handler
+
+        # Seed user con onboarding=False
+        dynamodb_table.put_item(Item={
+            "pk": "USER#test-user-id-123",
+            "sk": "PROFILE",
+            "userId": "test-user-id-123",
+            "email": "test@example.com",
+            "name": "Test User",
+            "isPro": False,
+            "onboarding": False,
+            "createdAt": "2026-04-24T10:00:00Z",
+        })
+
+        # Chiama handler con body={"onboarding": True}
+        event = build_api_event(
+            method="PUT",
+            path="/users/me",
+            body={"onboarding": True},
+        )
+        result = handler(event, lambda_context)
+
+        # Assert: risposta 200, body["onboarding"] == True
+        assert result["statusCode"] == 200
+        body = json.loads(result["body"])
+        assert body["onboarding"] is True
+
+        # Assert: DynamoDB item["onboarding"] == True
+        item = dynamodb_table.get_item(
+            Key={"pk": "USER#test-user-id-123", "sk": "PROFILE"}
+        ).get("Item")
+        assert item["onboarding"] is True
