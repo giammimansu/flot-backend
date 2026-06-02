@@ -342,6 +342,7 @@
     <a href="#lifecycle"><span class="num">04</span> Trip lifecycle</a>
     <a href="#deadlock"><span class="num">05</span> Payment Deadlock</a>
     <a href="#p0-implementazioni"><span class="num">05b</span> P0 Implementazioni</a>
+    <a href="#p1-implementazioni"><span class="num">05c</span> P1 Implementazioni</a>
     <div class="nav-group-label">Interfacce</div>
     <a href="#api"><span class="num">06</span> API Reference</a>
     <a href="#frontend"><span class="num">07</span> Frontend</a>
@@ -846,6 +847,67 @@ partially_unlocked → unlock_expired / dissolved / expired</pre>
     </div>
   </section>
 
+  <!-- ══════════════ 5c. P1 IMPLEMENTAZIONI (02/06/2026) ══════════════ -->
+  <section id="p1-implementazioni">
+    <h2><span class="sec-num">05c</span> P1 — Implementazioni (02/06/2026)</h2>
+    <p class="sec-lead">Sessione P1: go-live a pagamento sbloccato. Chat interna, notifiche multi-canale, osservabilità business, admin tooling.</p>
+
+    <h3>#6 — Chat interna completa</h3>
+    <p>Il template SAM referenziava già <code class="ic">WsChatMessageFunction</code> ma il file handler mancava. Ora completo.</p>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Componente</th><th>File</th><th>Descrizione</th></tr></thead>
+      <tbody>
+        <tr><td>WS relay</td><td><code>handlers/websocket/chat_message.py</code></td><td>Valida match unlocked + membership, persiste ChatMessage, relay WS al partner, push fallback (throttled 5 min)</td></tr>
+        <tr><td>REST history</td><td><code>handlers/matches/get_chat.py</code></td><td>GET /matches/{matchId}/chat, paginato oldest-first, cursor base64</td></tr>
+        <tr><td>System messages</td><td><code>handlers/chat/system_message.py</code></td><td>post_match_confirmed, post_partner_unlocked, post_chat_expiring — tipo="system", no senderId</td></tr>
+      </tbody>
+    </table></div>
+    <p><strong>Schema ChatMessage:</strong> <code class="ic">pk=MATCH#&lt;id&gt;</code>, <code class="ic">sk=CHAT#&lt;ts&gt;#&lt;uuid&gt;</code> (sortable). Campo <code class="ic">ttl</code> settato da <code class="ic">on_trip_completed</code> (48h). Messaggi di sistema emessi automaticamente da <code class="ic">on_match_found</code> e <code class="ic">on_partial_unlock</code>.</p>
+
+    <h3>#7 — Notifiche multi-canale E2E</h3>
+    <p>Refactoring completo di <code class="ic">lib/notifications.py</code> con chain esplicita e dedup cross-canale:</p>
+    <div class="code-wrap">
+      <div class="code-head"><span class="code-lang">python</span><button class="copy-btn">Copia</button></div>
+<pre>deliver(user_id, title, body, payload)
+  1. WebSocket     → se consegnato: skip push + email
+  2. Push (FCM)    → solo se WS missed; dead token → rimozione da profilo
+  3. Email (SES)   → se always_email=True O né WS né push consegnato</pre>
+    </div>
+    <p><strong>Dead token cleanup:</strong> Firebase <code class="ic">registration-token-not-registered</code> / <code class="ic">invalid-registration-token</code> → <code class="ic">_clear_dead_token()</code> rimuove <code class="ic">pushToken</code> dal profilo DynamoDB. <code class="ic">DeliveryResult</code> dataclass traccia canali utilizzati.</p>
+
+    <h3>#8 — Osservabilità di business</h3>
+    <p>Nuovo <code class="ic">src/lib/metrics.py</code> con <code class="ic">business_metrics</code> singleton (namespace <code class="ic">Flot/Business</code>). Metriche emesse:</p>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Metrica</th><th>Dimensione</th><th>Emessa da</th></tr></thead>
+      <tbody>
+        <tr><td><code>TripCreated</code></td><td>Airport</td><td>(da aggiungere a create_trip)</td></tr>
+        <tr><td><code>TripMatched</code></td><td>Airport</td><td>matchmaker — lock promotion</td></tr>
+        <tr><td><code>TripExpiredNoMatch</code></td><td>Airport</td><td>on_trip_expired (ora reale, non più stub)</td></tr>
+        <tr><td><code>MatchLatencyMinutes</code></td><td>Airport</td><td>matchmaker — createdAt→matched</td></tr>
+        <tr><td><code>DeadlockResolved</code></td><td>Airport</td><td>unlock_match — entrambi sbloccati</td></tr>
+        <tr><td><code>DeadlockTimedOut</code></td><td>Airport</td><td>on_unlock_expired — timeout</td></tr>
+        <tr><td><code>PoolFillCount</code></td><td>Airport + Bucket</td><td>(da aggiungere a matchmaker scan)</td></tr>
+      </tbody>
+    </table></div>
+    <p>Failures in <code class="ic">_put()</code> vengono swallowed — le metriche non bloccano mai il flow. <code class="ic">on_trip_expired</code> ora notifica l'utente via <code class="ic">deliver()</code> oltre a emettere la metrica.</p>
+
+    <h3>#9 — Admin &amp; ops tooling</h3>
+    <p>4 endpoint operativi IAM-protected (<code class="ic">Auth: Authorizer: NONE</code> in template, accesso tramite SigV4 AWS):</p>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Endpoint</th><th>Handler</th><th>Funzione</th></tr></thead>
+      <tbody>
+        <tr><td><code>POST /admin/matches/{id}/void</code></td><td><code>admin/void_match.py</code></td><td>Void PI Stripe + emette match.dissolved. Skip se già terminale.</td></tr>
+        <tr><td><code>POST /admin/trips/{id}/repool</code></td><td><code>admin/repool_trip.py</code></td><td>Rimette trip in scheduled. Ammesso da: matched, partially_unlocked_wait, expired, tentative_match.</td></tr>
+        <tr><td><code>GET /admin/matches/{id}/inspect</code></td><td><code>admin/inspect_match.py</code></td><td>Stato completo match + entrambi i trip, non filtrato.</td></tr>
+        <tr><td><code>POST /admin/flights/{tripId}/refresh-eta</code></td><td><code>admin/refresh_eta.py</code></td><td>Force re-fetch ETA dal tracker. Gestisce degraded.</td></tr>
+      </tbody>
+    </table></div>
+    <div class="callout info">
+      <div class="callout-title">ⓘ Sicurezza admin</div>
+      <p>I path <code class="ic">/admin/*</code> non hanno il Cognito authorizer (Authorizer: NONE nel template). L'accesso deve essere protetto tramite IAM policy che limita <code class="ic">execute-api:Invoke</code> ai soli principal autorizzati (ruoli ops). Non esporre questi endpoint pubblicamente.</p>
+    </div>
+  </section>
+
   <!-- ══════════════ 6. API REFERENCE ══════════════ -->
   <section id="api">
     <h2><span class="sec-num">06</span> API Reference</h2>
@@ -1174,8 +1236,12 @@ partially_unlocked → unlock_expired / dissolved / expired</pre>
           <td><strong>Elastic &amp; Predictive</strong>: Flight Tracker (ETA da flightNumber + circuit breaker), Shadow Pool con Tentative Match, lock window T‑3h, <strong>soglia dinamica</strong> time-decay, <strong>corridoio direzionale</strong> con detour penalty, <strong>Payment Deadlock Resolution</strong> (Smart Auto-Capture). Nuovo GSI6, nuovi stati match.</td>
         </tr>
         <tr>
-          <td><span class="mono">v4 P0</span> <span class="badge b-new">corrente</span></td>
+          <td><span class="mono">v4 P0</span></td>
           <td><strong>Hardening P0 (02/06/2026)</strong>: State machine esplicita Trip/Match (<code>src/lib/state_machine.py</code>), fix doppio-capture Stripe (ordine secondo→primo), webhook Stripe con dedup DynamoDB, Flight Tracker cascade failover (primary→fallback→degraded) con due circuit breaker indipendenti, fix race condition Matchmaker (<code>create_tentative_match</code> con <code>#status=scheduled</code>), 36 nuovi test (unit + integration).</td>
+        </tr>
+        <tr>
+          <td><span class="mono">v4 P1</span> <span class="badge b-new">corrente</span></td>
+          <td><strong>Go-live P1 (02/06/2026)</strong>: Chat interna completa (WS relay + REST history + system messages), notifiche multi-canale con dedup WS→Push→Email + dead token cleanup, business metrics (<code>Flot/Business</code> namespace: TripMatched, MatchLatencyMinutes, DeadlockResolved/TimedOut, TripExpiredNoMatch), admin ops tooling IAM-protected (void/repool/inspect/refresh-eta), 46 nuovi test. Totale: 207 test verdi.</td>
         </tr>
       </tbody>
     </table></div>

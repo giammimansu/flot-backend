@@ -2,7 +2,8 @@
 
 > Ultimo aggiornamento: 2 Giugno 2026
 > Versione backend attuale: v4 Elastic & Predictive + Smart Auto-Capture (Payment Deadlock)
-> Sessione 2 Giugno: P0 completato (#1 già esistente, #2 #3 #4 #5 implementati e committati)
+> Sessione 2 Giugno (mattina): P0 completato (#1 già esistente, #2 #3 #4 #5 implementati e committati)
+> Sessione 2 Giugno (pomeriggio): P1 completato (#6 #7 #8 #9 implementati e committati)
 
 La logica di priorità è **operativa, non tematica**: prima rendere affidabile e chiudibile ciò che esiste, poi sbloccare il go-live a pagamento, infine crescita e difesa.
 
@@ -125,7 +126,7 @@ Servono per operare davvero, ma non bloccano l'hardening di P0.
 
 ### #6 — Completare la chat interna
 
-**Stato**: specificata, parzialmente implementata
+**Stato**: ✅ COMPLETATO (02/06/2026)
 **Dipendenze**: #1 (per il TTL trigger)
 
 La chat non è da sviluppare da zero — WebSocket relay, storage `ChatMessage`, endpoint `GET /matches/:matchId/chat` sono già nel design. I pezzi mancanti:
@@ -143,7 +144,7 @@ La chat non è da sviluppare da zero — WebSocket relay, storage `ChatMessage`,
 
 ### #7 — Notifiche multi-canale verificate end-to-end
 
-**Stato**: nel design, non testato end-to-end
+**Stato**: ✅ COMPLETATO (02/06/2026)
 **Dipendenze**: nessuna
 
 Push (SNS/FCM), email (SES) e WebSocket sono specificati ma non verificati insieme nella pipeline completa: registrazione token → match trovato → utente offline → push → email fallback.
@@ -162,7 +163,7 @@ Push (SNS/FCM), email (SES) e WebSocket sono specificati ma non verificati insie
 
 ### #8 — Osservabilità di business
 
-**Stato**: solo metriche tecniche Lambda Powertools
+**Stato**: ✅ COMPLETATO (02/06/2026)
 **Dipendenze**: nessuna
 
 Le metriche tecniche (`TentativeMatchesCreated`, `UnlockTimeouts`) esistono. Mancano le metriche che dicono se il prodotto funziona:
@@ -184,7 +185,7 @@ Le metriche tecniche (`TentativeMatchesCreated`, `UnlockTimeouts`) esistono. Man
 
 ### #9 — Admin & ops tooling minimo
 
-**Stato**: assente
+**Stato**: ✅ COMPLETATO (02/06/2026)
 **Dipendenze**: #2, #3
 
 In produzione, il primo match incagliato o il primo pagamento anomalo richiederà intervento manuale. Serve un set minimo di endpoint operativi (protetti da IAM, non da Cognito user).
@@ -296,10 +297,10 @@ Il target è **< $50/mese a volume MVP**. Va validato con carico simulato, non s
 | 3 | State machine lifecycle | P0 | ✅ Completato | #2 |
 | 4 | Integration test concorrenza Matchmaker | P0 | ✅ Completato | #3 |
 | 5 | Failover Flight Tracker | P0 | ✅ Completato | — |
-| 6 | Completare chat interna | P1 | Parziale | #1 |
-| 7 | Notifiche multi-canale E2E | P1 | Non testato | — |
-| 8 | Osservabilità di business | P1 | Solo metriche tecniche | — |
-| 9 | Admin & ops tooling | P1 | Assente | #2, #3 |
+| 6 | Completare chat interna | P1 | ✅ Completato | #1 |
+| 7 | Notifiche multi-canale E2E | P1 | ✅ Completato | — |
+| 8 | Osservabilità di business | P1 | ✅ Completato | — |
+| 9 | Admin & ops tooling | P1 | ✅ Completato | #2, #3 |
 | 10 | Penalità anti-no-show | P2 | Da sviluppare | #1, #8 |
 | 11 | Sistema di rating | P2 | Da sviluppare | #1, #10 |
 | 12 | Onboarding secondo aeroporto | P2 | Architettura pronta | — |
