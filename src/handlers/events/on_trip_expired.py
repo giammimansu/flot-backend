@@ -1,16 +1,49 @@
-"""Flot — EventBridge handler for trip.expired
+"""Flot — EventBridge handler for trip.expired.
 
-Sends notification to the user assuming their trip schedule couldn't match.
+Fires when a scheduled trip expires without ever being matched.
+Emits the TripExpiredNoMatch business metric (cold-start indicator)
+and notifies the user.
 """
 from __future__ import annotations
 
 from aws_lambda_powertools import Logger, Tracer
 
+from lib.dynamo import get_trip, get_user
+from lib.metrics import business_metrics
+from lib.notifications import deliver
+
 logger = Logger()
 tracer = Tracer()
+
 
 @logger.inject_lambda_context
 @tracer.capture_lambda_handler
 def handler(event: dict, context) -> None:
-    """Handle trip.expired events."""
-    logger.info("Trip Expired -> Should notify the user!")
+    detail = event.get("detail", {})
+    trip_id = detail.get("tripId")
+    airport_code = detail.get("airportCode", "UNKNOWN")
+
+    # Emit business metric — TripExpiredNoMatch is a cold-start indicator
+    business_metrics.record_trip_expired_no_match(airport_code)
+
+    if not trip_id:
+        logger.warning("trip_expired_missing_trip_id")
+        return
+
+    trip = get_trip(trip_id)
+    if not trip:
+        logger.warning("trip_expired_trip_not_found", tripId=trip_id)
+        return
+
+    user_id = trip.get("userId")
+    if not user_id:
+        return
+
+    deliver(
+        user_id,
+        "Nessun partner trovato 😔",
+        "Non siamo riusciti a trovare un partner per il tuo viaggio questa volta. Riprova al prossimo volo!",
+        {"type": "trip_expired", "tripId": trip_id, "airportCode": airport_code},
+    )
+
+    logger.info("trip_expired_notified", tripId=trip_id, airportCode=airport_code, userId=user_id)

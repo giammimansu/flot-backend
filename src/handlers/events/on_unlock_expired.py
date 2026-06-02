@@ -5,6 +5,7 @@ from lib.airports import get_airport
 from lib.dynamo import get_match, get_trip, table, now_iso
 from lib.notifications import notify_user
 from lib.state_machine import MatchStateMachine, TripStateMachine
+from lib.metrics import business_metrics
 from aws_lambda_powertools import Logger
 from lib.schedulers import cancel_all_unlock_reminders
 
@@ -128,6 +129,9 @@ def handler(event, context):
 
     # 5. Cancella eventuali reminder schedulati rimasti
     cancel_all_unlock_reminders(match_id)
+
+    # Business metric: deadlock timed out
+    business_metrics.record_deadlock_resolution(resolved=False, airport_code=match.get("airportCode", "ALL"))
 
     logger.info("unlock_expired",
         matchId=match_id,

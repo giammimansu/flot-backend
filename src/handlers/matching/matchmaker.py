@@ -15,6 +15,7 @@ from botocore.exceptions import ClientError
 
 from lib import dynamo
 from lib.airports import get_active_airports, AirportConfig
+from lib.metrics import business_metrics
 from lib.matching import (
     find_best_match,
     build_match_item,
@@ -206,6 +207,20 @@ def _promote_tentative_to_match(
         matchId=match_item["matchId"],
         score=round(float(tm.get("score", 0)), 2),
     )
+
+    # Business metrics: trip_matched + latency for both trips
+    for trip in (trip_a, trip_b):
+        business_metrics.record_trip_matched(airport.code)
+        created_at = trip.get("createdAt")
+        if created_at:
+            try:
+                from datetime import datetime, timezone
+                created_dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                latency_min = (datetime.now(timezone.utc) - created_dt).total_seconds() / 60
+                business_metrics.record_match_latency_minutes(airport.code, round(latency_min, 1))
+            except Exception:
+                pass
+
     return True
 
 

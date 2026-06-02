@@ -11,6 +11,7 @@ from lib.eventbridge import put_event
 from lib.http import AppError, app_handler, success
 from lib.schedulers import create_unlock_timeout_schedule, cancel_unlock_timeout_schedule
 from lib.state_machine import MatchStateMachine, InvalidTransitionError
+from lib.metrics import business_metrics
 from aws_lambda_powertools import Logger
 
 logger = Logger()
@@ -227,6 +228,9 @@ def handler(event, context):
             "userId1": match["userId1"],
             "userId2": match["userId2"],
         })
+
+        # Business metric: deadlock resolved (both users unlocked)
+        business_metrics.record_deadlock_resolution(resolved=True, airport_code=match.get("airportCode", "ALL"))
 
         logger.info("match_fully_unlocked", matchId=match["matchId"])
 
