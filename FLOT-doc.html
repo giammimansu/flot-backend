@@ -341,6 +341,7 @@
     <a href="#matching"><span class="num">03</span> Algoritmo di matching</a>
     <a href="#lifecycle"><span class="num">04</span> Trip lifecycle</a>
     <a href="#deadlock"><span class="num">05</span> Payment Deadlock</a>
+    <a href="#p0-implementazioni"><span class="num">05b</span> P0 Implementazioni</a>
     <div class="nav-group-label">Interfacce</div>
     <a href="#api"><span class="num">06</span> API Reference</a>
     <a href="#frontend"><span class="num">07</span> Frontend</a>
@@ -708,8 +709,14 @@ CI/CD:          GitHub Actions &rarr; sam build &rarr; sam deploy</pre>
     <h3>Flight Tracker v4</h3>
     <p>Quando un trip include <code class="ic">flightNumber</code> (obbligatorio in v4), il <strong>FlightTrackerFunction</strong> interroga periodicamente l'API di tracking voli per ottenere l'ETA reale e aggiornare automaticamente <code class="ic">flightTime</code>. Se un volo è in ritardo, l'evento <code class="ic">on_flight_delayed</code> verifica se il match esistente è ancora compatibile.</p>
     <div class="callout warn">
-      <div class="callout-title">⚠ Circuit breaker</div>
-      <p>Se l'API di tracking fallisce <strong>3 volte consecutive</strong>, il circuit breaker si apre e il Flight Tracker smette di interrogarla, evitando di accumulare errori e costi. Il trip resta sul <code class="ic">flightTime</code> dichiarato dall'utente.</p>
+      <div class="callout-title">⚠ Circuit breaker + cascade failover</div>
+      <p>Ogni provider ha un circuit breaker indipendente (3 fail → 30 min blackout). La strategia a cascata è:</p>
+      <ol style="margin: 8px 0 0 18px; line-height:1.8">
+        <li><strong>Provider primario</strong> (<code class="ic">FLIGHT_TRACKER_PROVIDER</code>)</li>
+        <li><strong>Provider fallback</strong> (<code class="ic">FLIGHT_TRACKER_FALLBACK_PROVIDER</code>) — se configurato</li>
+        <li><strong>Degraded</strong> — entrambi falliti: <code class="ic">fetch_flight_eta</code> ritorna <code class="ic">None</code>, il trip resta nel pool con <code class="ic">trackingStatus="degraded"</code> e usa il <code class="ic">flightTime</code> statico. Non viene escluso dal matching.</li>
+      </ol>
+      <p style="margin-top:8px">Quando un breaker si apre, viene emessa la metrica CloudWatch <code class="ic">FlightTrackerCircuitOpen</code> (alarm-ready).</p>
     </div>
   </section>
 
@@ -757,8 +764,13 @@ B NON risponde entro la deadline
     </div>
 
     <div class="callout crit">
-      <div class="callout-title">✖ Mai capture senza entrambi gli auth</div>
-      <p>Il capture del primo PaymentIntent avviene <strong>solo</strong> quando il secondo è stato autorizzato con successo. Se il capture del primo fallisce (es. auth scaduta), il secondo viene immediatamente annullato: nessun addebito unilaterale.</p>
+      <div class="callout-title">✖ Mai capture senza entrambi gli auth — ordine di sicurezza</div>
+      <p>Il capture avviene in questo ordine preciso per garantire zero charge unilaterali:</p>
+      <ol style="margin: 8px 0 0 18px; line-height: 1.8">
+        <li><strong>Capture secondo PI</strong> (utente B) — se fallisce, viene cancellato; il primo PI di A non viene mai toccato → €0 addebitati.</li>
+        <li><strong>Capture primo PI</strong> (utente A) — se fallisce dopo che il secondo è già stato catturato, viene emesso un <strong>Refund</strong> immediato sul secondo → €0 addebitati.</li>
+      </ol>
+      <p style="margin-top: 8px">Questo ordine (secondo prima del primo) era invertito nelle versioni precedenti, esponendo al rischio di addebitare B senza addebitare A.</p>
     </div>
 
     <h3>previousMatchPartners</h3>
@@ -780,6 +792,57 @@ B NON risponde entro la deadline
     <div class="callout info">
       <div class="callout-title">ⓘ Note di implementazione</div>
       <p><code class="ic">partially_unlocked</code> è uno stato del <strong>Match</strong>, non del Trip: il trip resta <code class="ic">matched</code> durante l'attesa. I reminder sono EventBridge Scheduler one-shot con <code class="ic">ActionAfterCompletion: DELETE</code>, non polling. Il timeout è per-aeroporto (<code class="ic">unlock_timeout_minutes</code>), mai hardcoded. Con <code class="ic">FAKE_DOOR_MODE=true</code> l'unlock registra l'intent senza creare il PaymentIntent, ma simula comunque il flusso per testare la UX.</p>
+    </div>
+  </section>
+
+  <!-- ══════════════ 5b. P0 IMPLEMENTAZIONI (02/06/2026) ══════════════ -->
+  <section id="p0-implementazioni">
+    <h2><span class="sec-num">05b</span> P0 — Implementazioni (02/06/2026)</h2>
+    <p class="sec-lead">Sessione di hardening P0: tutti e 5 gli item bloccanti completati. Di seguito i dettagli architetturali delle modifiche introdotte.</p>
+
+    <h3>#3 — State Machine esplicita (src/lib/state_machine.py)</h3>
+    <p>Ogni aggiornamento di <code class="ic">status</code> su Trip e Match passa ora attraverso <code class="ic">TripStateMachine.transition(from, to)</code> o <code class="ic">MatchStateMachine.transition(from, to)</code>. Se la transizione non è nella lista degli archi ammessi, viene sollevata <code class="ic">InvalidTransitionError</code>.</p>
+    <div class="code-wrap">
+      <div class="code-head"><span class="code-lang">python</span><button class="copy-btn">Copia</button></div>
+<pre><span class="com"># Trip edges legali</span>
+scheduled → tentative_match → matched → partially_unlocked_wait → completed
+scheduled → cancelled / expired
+searching ↔ scheduled (interscambiabili)
+
+<span class="com"># Match edges legali</span>
+pending → partially_unlocked → unlocked → completed
+pending → dissolved / expired / cancelled
+partially_unlocked → unlock_expired / dissolved / expired</pre>
+    </div>
+    <p>I <code class="ic">ConditionExpression</code> DynamoDB rimangono come guardia a livello di persistenza. La state machine è la guardia a livello applicativo. Wired in: <code class="ic">unlock_match</code>, <code class="ic">cancel_trip</code>, <code class="ic">on_trip_completed</code>, <code class="ic">on_match_expired</code>, <code class="ic">on_match_dissolved</code>, <code class="ic">on_unlock_expired</code>.</p>
+
+    <h3>#2 — Stripe Hardening</h3>
+    <p><strong>Bug corretto (doppio capture):</strong> il capture del secondo PI avviene <em>prima</em> del primo. Se il secondo fallisce → cancel; il primo non è mai toccato (€0). Se il primo fallisce dopo che il secondo è già catturato → Refund immediato sul secondo (€0). Vedi callout nella sezione Payment Deadlock.</p>
+    <p><strong>Webhook handler:</strong> nuovo <code class="ic">POST /webhooks/stripe</code> (handler: <code class="ic">src/handlers/webhooks/stripe_webhook.py</code>). Deduplicazione via DynamoDB conditional put su <code class="ic">pk=STRIPE_EVENT#&lt;id&gt;</code> (TTL 7 giorni). Firma Stripe verificata se <code class="ic">STRIPE_WEBHOOK_SECRET</code> è configurato.</p>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Evento Stripe</th><th>Comportamento</th></tr></thead>
+      <tbody>
+        <tr><td><code>payment_intent.amount_capturable_updated</code></td><td>Log only (capture avviene in unlock_match)</td></tr>
+        <tr><td><code>payment_intent.payment_failed</code></td><td>Log error (alert ops)</td></tr>
+        <tr><td><code>payment_intent.canceled</code></td><td>Log info</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>#5 — Flight Tracker Failover (cascade + degraded)</h3>
+    <p>Vedi aggiornamento nella sezione <a href="#lifecycle" class="inline">Trip lifecycle → Flight Tracker v4</a>. Riepilogo:</p>
+    <ul>
+      <li><code class="ic">AirportConfig.flight_tracker_fallback_provider</code> — nuovo campo (default <code class="ic">""</code>)</li>
+      <li>Env var: <code class="ic">FLIGHT_TRACKER_FALLBACK_PROVIDER</code></li>
+      <li>Due circuit breaker indipendenti: <code class="ic">_breaker_primary</code> e <code class="ic">_breaker_fallback</code></li>
+      <li>Ritorno <code class="ic">None</code> = degraded (il trip resta nel pool, <code class="ic">trackingStatus="degraded"</code>)</li>
+    </ul>
+
+    <h3>#4 — Race condition Matchmaker (bug fix)</h3>
+    <p>Trovata e corretta una race condition in <code class="ic">dynamo.create_tentative_match</code>: il <code class="ic">ConditionExpression</code> sui trip era <code class="ic">attribute_exists(pk)</code> — verificava solo l'esistenza, non lo stato. Due run concorrenti potevano entrambi leggere i trip come <code class="ic">scheduled</code> e creare TentativeMatch duplicati per la stessa coppia.</p>
+    <p><strong>Fix:</strong> condizione cambiata in <code class="ic">#status = :scheduled</code>. Il run più lento riceve <code class="ic">TransactionCanceledException</code> e skippa (<code class="ic">tentative_match_concurrent_skip</code> nel log). <code class="ic">optimize_pool</code> gestisce l'eccezione con <code class="ic">continue</code>.</p>
+    <div class="callout info">
+      <div class="callout-title">ⓘ Copertura test concorrenza</div>
+      <p>4 test in <code class="ic">tests/integration/test_matchmaker_concurrency.py</code> usano threading + moto per verificare: nessun trip matchato due volte in run paralleli, al massimo 1 lock definitivo da run concorrenti, pool dispari senza doppi assignment, dissolve durante promozione lock = skip senza crash.</p>
     </div>
   </section>
 
@@ -1107,8 +1170,12 @@ B NON risponde entro la deadline
           <td>GPS <strong>Haversine</strong> al posto delle zone, <strong>Scheduled mode</strong>, Matchmaker ogni 5 min (EventBridge Scheduled Rule), <strong>push notifications</strong> (FCM/SNS). Nuovi endpoint <code>/trips/my</code>, <code>/trips/:id</code> DELETE, <code>/users/me/push-token</code>, <code>/notifications</code>.</td>
         </tr>
         <tr>
-          <td><span class="mono">v4</span> <span class="badge b-new">corrente</span></td>
+          <td><span class="mono">v4</span></td>
           <td><strong>Elastic &amp; Predictive</strong>: Flight Tracker (ETA da flightNumber + circuit breaker), Shadow Pool con Tentative Match, lock window T‑3h, <strong>soglia dinamica</strong> time-decay, <strong>corridoio direzionale</strong> con detour penalty, <strong>Payment Deadlock Resolution</strong> (Smart Auto-Capture). Nuovo GSI6, nuovi stati match.</td>
+        </tr>
+        <tr>
+          <td><span class="mono">v4 P0</span> <span class="badge b-new">corrente</span></td>
+          <td><strong>Hardening P0 (02/06/2026)</strong>: State machine esplicita Trip/Match (<code>src/lib/state_machine.py</code>), fix doppio-capture Stripe (ordine secondo→primo), webhook Stripe con dedup DynamoDB, Flight Tracker cascade failover (primary→fallback→degraded) con due circuit breaker indipendenti, fix race condition Matchmaker (<code>create_tentative_match</code> con <code>#status=scheduled</code>), 36 nuovi test (unit + integration).</td>
         </tr>
       </tbody>
     </table></div>

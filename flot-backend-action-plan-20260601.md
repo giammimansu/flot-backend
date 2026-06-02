@@ -1,7 +1,8 @@
 # Flot — Backend Action Plan
 
-> Ultimo aggiornamento: Giugno 2026
+> Ultimo aggiornamento: 2 Giugno 2026
 > Versione backend attuale: v4 Elastic & Predictive + Smart Auto-Capture (Payment Deadlock)
+> Sessione 2 Giugno: P0 completato (#1 già esistente, #2 #3 #4 #5 implementati e committati)
 
 La logica di priorità è **operativa, non tematica**: prima rendere affidabile e chiudibile ciò che esiste, poi sbloccare il go-live a pagamento, infine crescita e difesa.
 
@@ -15,7 +16,7 @@ Senza questi, non è sicuro passare a pagamenti reali.
 
 ### #1 — Handler `trip.completed`
 
-**Stato**: mancante
+**Stato**: ✅ COMPLETATO (pre-esistente — piano stale)
 **Dipendenze**: nessuna
 **Sblocca**: #6 (chat TTL), #11 (rating)
 
@@ -36,7 +37,7 @@ Il nodo a maggior leva del progetto: è citato ovunque (`trip.completed → "req
 
 ### #2 — Hardening flusso Stripe reale
 
-**Stato**: esistente ma mai esercitato (tutto dietro `FAKE_DOOR_MODE`)
+**Stato**: ✅ COMPLETATO (02/06/2026)
 **Dipendenze**: nessuna
 
 `FAKE_DOOR_MODE` cortocircuita l'intero flusso pagamenti. Prima di toglierlo, i seguenti percorsi vanno testati con Stripe in modalità test reale (non mock):
@@ -55,7 +56,7 @@ Il nodo a maggior leva del progetto: è citato ovunque (`trip.completed → "req
 
 ### #3 — State machine esplicita del lifecycle Trip/Match
 
-**Stato**: logica sparsa nei singoli handler
+**Stato**: ✅ COMPLETATO (02/06/2026)
 **Dipendenze**: #2
 
 Il ciclo è cresciuto molto:
@@ -81,7 +82,7 @@ Senza un punto unico di validazione, transizioni illegali (es. `unlock_expired �
 
 ### #4 — Integration test concorrenza Matchmaker
 
-**Stato**: idempotenza testata solo con mock sequenziali
+**Stato**: ✅ COMPLETATO (02/06/2026) — trovato e fixato race condition in create_tentative_match
 **Dipendenze**: #3
 
 `optimize_pool` con dissolve/replace dei TentativeMatch è il punto più esposto a race condition. I test unitari attuali non coprono run paralleli reali.
@@ -99,7 +100,7 @@ Senza un punto unico di validazione, transizioni illegali (es. `unlock_expired �
 
 ### #5 — Failover Flight Tracker
 
-**Stato**: single point of failure su `aviation_edge`
+**Stato**: ✅ COMPLETATO (02/06/2026)
 **Dipendenze**: nessuna
 
 Il fallback attuale al `flightTime` statico azzera il vantaggio predittivo della v4. Il circuit breaker (3 fail → 30 min blackout) è corretto come protezione ma non come resilienza.
@@ -290,11 +291,11 @@ Il target è **< $50/mese a volume MVP**. Va validato con carico simulato, non s
 
 | # | Feature | Priorità | Stato | Dipende da |
 |---|---------|----------|-------|------------|
-| 1 | Handler `trip.completed` | P0 | Mancante | — |
-| 2 | Hardening flusso Stripe | P0 | Da testare | — |
-| 3 | State machine lifecycle | P0 | Da costruire | #2 |
-| 4 | Integration test concorrenza Matchmaker | P0 | Da costruire | #3 |
-| 5 | Failover Flight Tracker | P0 | Single provider | — |
+| 1 | Handler `trip.completed` | P0 | ✅ Completato | — |
+| 2 | Hardening flusso Stripe | P0 | ✅ Completato | — |
+| 3 | State machine lifecycle | P0 | ✅ Completato | #2 |
+| 4 | Integration test concorrenza Matchmaker | P0 | ✅ Completato | #3 |
+| 5 | Failover Flight Tracker | P0 | ✅ Completato | — |
 | 6 | Completare chat interna | P1 | Parziale | #1 |
 | 7 | Notifiche multi-canale E2E | P1 | Non testato | — |
 | 8 | Osservabilità di business | P1 | Solo metriche tecniche | — |
