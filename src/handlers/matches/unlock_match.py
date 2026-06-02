@@ -179,12 +179,27 @@ def handler(event, context):
         first_pi_id = match.get("firstUnlockPaymentIntentId", "")
 
         if stripe_key:
+            # Capture second PI first. If it fails, cancel it — first PI never touched,
+            # so no charge to either user. Only then capture first PI (already authorized).
             try:
-                stripe.PaymentIntent.capture(first_pi_id)
                 stripe.PaymentIntent.capture(intent.id)
             except stripe.error.StripeError as e:
-                logger.error("capture_failed", matchId=match["matchId"], error=str(e))
-                stripe.PaymentIntent.cancel(intent.id)
+                logger.error("capture_second_failed", matchId=match["matchId"], piId=intent.id, error=str(e))
+                try:
+                    stripe.PaymentIntent.cancel(intent.id)
+                except stripe.error.StripeError:
+                    pass  # already expired/cancelled — safe
+                raise AppError(500, "Payment capture failed. No charges applied.")
+
+            try:
+                stripe.PaymentIntent.capture(first_pi_id)
+            except stripe.error.StripeError as e:
+                # Second PI already captured — refund it so neither user pays.
+                logger.error("capture_first_failed", matchId=match["matchId"], piId=first_pi_id, error=str(e))
+                try:
+                    stripe.Refund.create(payment_intent=intent.id)
+                except stripe.error.StripeError as re:
+                    logger.error("refund_failed", piId=intent.id, error=str(re))
                 raise AppError(500, "Payment capture failed. No charges applied.")
 
         table.update_item(

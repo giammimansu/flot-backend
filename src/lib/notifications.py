@@ -87,6 +87,22 @@ def notify_match_found(user_id: str, match_data: dict, match_context_for_user: d
         send_email_notification(user["email"], title, body)
 
 
+def notify_user(user_id: str, payload: dict) -> None:
+    """Generic single-user notification. Saves to DB and attempts push/WS delivery.
+
+    payload must contain: type, title, body. Any additional keys passed as metadata.
+    """
+    title = payload.get("title", "")
+    body_text = payload.get("body", "")
+    save_notification(user_id, title, body_text, payload)
+
+    ws_sent = send_to_user(user_id, {"type": payload.get("type"), "data": payload})
+
+    user = dynamo.get_item(f"USER#{user_id}", "PROFILE") or {}
+    if user.get("pushToken"):
+        send_push_notification(user["pushToken"], title, body_text, payload)
+
+
 def send_push_notification(token: str, title: str, body: str, payload: dict):
     if FAKE_DOOR_MODE:
         logger.info("FAKE_DOOR_MODE: Sent PUSH", extra={"token": token, "title": title})
