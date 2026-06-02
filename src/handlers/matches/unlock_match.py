@@ -10,6 +10,7 @@ from lib.dynamo import get_match, get_trip, get_user, table, now_iso
 from lib.eventbridge import put_event
 from lib.http import AppError, app_handler, success
 from lib.schedulers import create_unlock_timeout_schedule, cancel_unlock_timeout_schedule
+from lib.state_machine import MatchStateMachine, InvalidTransitionError
 from aws_lambda_powertools import Logger
 
 logger = Logger()
@@ -50,6 +51,12 @@ def handler(event, context):
     # Validazioni
     if match["status"] not in ("pending", "partially_unlocked"):
         raise AppError(400, "Match is not in a valid state for unlock")
+
+    target_status = "partially_unlocked" if len(match.get("unlockedBy", [])) == 0 else "unlocked"
+    try:
+        MatchStateMachine.transition(match["status"], target_status)
+    except InvalidTransitionError as e:
+        raise AppError(400, str(e))
 
     if user_id in match.get("unlockedBy", []):
         raise AppError(400, "You have already unlocked this match")

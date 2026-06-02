@@ -6,6 +6,7 @@ flight is gone) and notifies both users.
 """
 from lib.dynamo import get_match, get_trip, table, now_iso
 from lib.notifications import save_notification
+from lib.state_machine import MatchStateMachine, TripStateMachine
 from aws_lambda_powertools import Logger
 
 logger = Logger()
@@ -32,7 +33,7 @@ def handler(event, context):
     reason = detail.get("reason", "flight_departed")
     match = get_match(match_id)
 
-    if match["status"] in ("completed", "expired", "dissolved", "unlock_expired"):
+    if MatchStateMachine.is_terminal(match["status"]):
         return  # già gestito
 
     # 1. Match → expired
@@ -50,7 +51,7 @@ def handler(event, context):
     # 2. Entrambi i trip → expired (no re-pool: il volo è partito)
     for trip_id in (match["tripId1"], match["tripId2"]):
         trip = get_trip(trip_id)
-        if trip["status"] not in ("cancelled", "expired", "completed"):
+        if not TripStateMachine.is_terminal(trip["status"]):
             expire_trip(trip)
 
     # 3. Notifica entrambi gli utenti

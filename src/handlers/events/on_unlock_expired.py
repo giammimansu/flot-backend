@@ -4,6 +4,7 @@ from boto3.dynamodb.conditions import Attr
 from lib.airports import get_airport
 from lib.dynamo import get_match, get_trip, table, now_iso
 from lib.notifications import notify_user
+from lib.state_machine import MatchStateMachine, TripStateMachine
 from aws_lambda_powertools import Logger
 from lib.schedulers import cancel_all_unlock_reminders
 
@@ -36,7 +37,7 @@ def handler(event, context):
     match = get_match(match_id)
 
     # Guard: il match potrebbe essere stato sbloccato nel frattempo
-    if match["status"] != "partially_unlocked":
+    if MatchStateMachine.is_terminal(match["status"]) or match["status"] != "partially_unlocked":
         logger.info("unlock_timeout_skipped",
             matchId=match_id,
             currentStatus=match["status"],
@@ -78,8 +79,7 @@ def handler(event, context):
         trip_b = get_trip(match["tripId2"])
 
         for trip in [trip_a, trip_b]:
-            # Solo se il trip non è scaduto o cancellato
-            if trip["status"] in ("matched", "partially_unlocked_wait"):
+            if not TripStateMachine.is_terminal(trip["status"]) and trip["status"] in ("matched", "partially_unlocked_wait"):
                 # Aggiungiamo logic per evitare re-match con lo stesso partner
                 previous_partner_user_id = match["userId2"] if trip["userId"] == match["userId1"] else match["userId1"]
                 

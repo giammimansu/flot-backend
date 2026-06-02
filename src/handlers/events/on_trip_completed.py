@@ -25,15 +25,16 @@ from aws_lambda_powertools import Logger, Tracer
 from lib.dynamo import get_match, get_trip, table, now_iso
 from lib.eventbridge import put_event
 from lib.notifications import save_notification
+from lib.state_machine import MatchStateMachine, TripStateMachine, InvalidTransitionError
 
 logger = Logger()
 tracer = Tracer()
 
 CHAT_TTL_HOURS = int(os.environ.get("CHAT_TTL_HOURS", "48"))
 
-# Match states from which completion is legal.
+# Match states from which completion is legal — kept for readability; authoritative
+# source is MatchStateMachine._MATCH_EDGES.
 _COMPLETABLE = ("unlocked",)
-_TERMINAL = ("completed", "expired", "dissolved", "unlock_expired", "cancelled")
 
 
 def _set_chat_ttl(match_id: str, ttl_epoch: int) -> int:
@@ -90,7 +91,7 @@ def handler(event: dict, context) -> None:
         logger.warning("trip_completed_match_missing", matchId=match_id)
         return
 
-    if match["status"] in _TERMINAL:
+    if MatchStateMachine.is_terminal(match["status"]):
         logger.info("trip_completed_skip_terminal", matchId=match_id, status=match["status"])
         return  # idempotent — already handled
 

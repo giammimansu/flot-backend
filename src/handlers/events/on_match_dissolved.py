@@ -1,5 +1,6 @@
 from lib.airports import get_airport
 from lib.dynamo import get_match, get_trip, table, now_iso
+from lib.state_machine import MatchStateMachine, TripStateMachine
 from aws_lambda_powertools import Logger
 
 logger = Logger()
@@ -36,7 +37,7 @@ def handler(event, context):
     reason = detail["reason"]
     match = get_match(match_id)
 
-    if match["status"] in ("unlocked", "completed", "unlock_expired", "dissolved"):
+    if MatchStateMachine.is_terminal(match["status"]) or match["status"] == "unlocked":
         return  # già gestito
 
     # Aggiorna match
@@ -56,7 +57,7 @@ def handler(event, context):
     if airport.unlock_repool_enabled:
         for trip_id in [match["tripId1"], match["tripId2"]]:
             trip = get_trip(trip_id)
-            if trip["status"] not in ("cancelled", "expired", "completed"):
+            if not TripStateMachine.is_terminal(trip["status"]):
                 partner_id = match["userId2"] if trip["userId"] == match["userId1"] else match["userId1"]
                 repool_trip_with_exclusion(trip, partner_id)
 

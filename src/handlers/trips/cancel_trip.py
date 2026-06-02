@@ -8,6 +8,7 @@ from aws_lambda_powertools import Logger, Tracer
 from lib import dynamo
 from lib.http import AppError, app_handler, json_response
 from lib.eventbridge import put_event
+from lib.state_machine import TripStateMachine, InvalidTransitionError
 
 logger = Logger()
 tracer = Tracer()
@@ -31,7 +32,9 @@ def handler(event: dict, context) -> dict:
         raise AppError(403, "Forbidden")
 
     status = trip.get("status")
-    if status not in ["searching", "scheduled"]:
+    try:
+        TripStateMachine.transition(status, "cancelled")
+    except InvalidTransitionError:
         raise AppError(400, f"Cannot cancel trip in status: {status}")
 
     trip["status"] = "cancelled"
