@@ -80,6 +80,12 @@ def _update_flight_eta(trip: dict, now: datetime) -> bool:
         logger.warning("flight_tracker_unavailable", tripId=trip["pk"], reason=str(exc))
         return False
 
+    if eta is None:
+        # All providers failed — mark trip as degraded but keep in matching.
+        dynamo.update_item(trip["pk"], "META", {"trackingStatus": "degraded"})
+        logger.warning("flight_tracker_degraded", tripId=trip["pk"])
+        return False
+
     current_dt = datetime.fromisoformat(trip["flightTime"].replace("Z", "+00:00"))
     delta_min = abs((eta - current_dt).total_seconds()) / 60
 

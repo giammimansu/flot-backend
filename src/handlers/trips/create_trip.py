@@ -69,11 +69,17 @@ def handler(event: dict, context) -> dict:
         logger.info("flight_time_from_client", flightNumber=req.flightNumber, flightTime=resolved_flight_time)
     else:
         try:
-            flight_dt = fetch_flight_eta(req.flightNumber, req.flightDate)
-            resolved_flight_time = flight_dt.isoformat().replace("+00:00", "Z")
-            logger.info("flight_eta_resolved", flightNumber=req.flightNumber, eta=resolved_flight_time)
+            eta = fetch_flight_eta(req.flightNumber, req.flightDate)
         except FlightTrackerError as exc:
             logger.warning("flight_tracker_unavailable", flightNumber=req.flightNumber, reason=str(exc))
+            eta = None
+
+        if eta is not None:
+            flight_dt = eta
+            resolved_flight_time = flight_dt.isoformat().replace("+00:00", "Z")
+            logger.info("flight_eta_resolved", flightNumber=req.flightNumber, eta=resolved_flight_time)
+        else:
+            # Degraded: fall back to static noon UTC on flight date
             resolved_flight_time = f"{req.flightDate}T12:00:00Z"
             flight_dt = datetime.fromisoformat(resolved_flight_time.replace("Z", "+00:00"))
             tracking_pending = True

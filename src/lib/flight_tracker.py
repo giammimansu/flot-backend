@@ -1,8 +1,15 @@
 """Flot — Flight Tracker client (v4).
 
 Resolves real ETA for a flight number + date.
-Supports aviation_edge, flightaware, and mock providers.
-Includes in-memory circuit breaker: 3 consecutive failures → 30 min blackout.
+
+Cascade strategy:
+  1. Primary provider (FLIGHT_TRACKER_PROVIDER env var, default "mock")
+  2. Fallback provider (FLIGHT_TRACKER_FALLBACK_PROVIDER env var, optional)
+  3. Static degrade — returns None; caller sets trip.trackingStatus="degraded"
+
+Each provider has its own circuit breaker (3 failures → 30 min blackout).
+When the primary breaker opens, a CloudWatch metric is emitted so an alarm
+can fire. Fallback does the same when it opens.
 """
 from __future__ import annotations
 
@@ -14,9 +21,12 @@ import urllib.request
 import urllib.parse
 import json
 
-from aws_lambda_powertools import Logger
+import boto3
+from aws_lambda_powertools import Logger, Metrics
+from aws_lambda_powertools.metrics import MetricUnit
 
 logger = Logger(child=True)
+metrics = Metrics(namespace=os.environ.get("POWERTOOLS_METRICS_NAMESPACE", "Flot"))
 
 
 class FlightTrackerError(Exception):
@@ -42,49 +52,91 @@ class _CircuitBreaker:
             return False
         return True
 
-    def record_failure(self) -> None:
+    def record_failure(self, provider_name: str = "") -> None:
         self._failures += 1
         if self._failures >= self.FAILURE_THRESHOLD:
             self._open_until = datetime.now(timezone.utc) + timedelta(minutes=self.BLACKOUT_MINUTES)
-            logger.warning("flight_tracker_circuit_open", open_until=self._open_until.isoformat())
+            logger.warning(
+                "flight_tracker_circuit_open",
+                provider=provider_name,
+                open_until=self._open_until.isoformat(),
+            )
+            # Emit CloudWatch metric so an alarm can fire
+            try:
+                metrics.add_metric(
+                    name="FlightTrackerCircuitOpen",
+                    unit=MetricUnit.Count,
+                    value=1,
+                )
+            except Exception:
+                pass  # metrics failure must never block the tracker
 
     def record_success(self) -> None:
         self._failures = 0
         self._open_until = None
 
 
-_breaker = _CircuitBreaker()
+_breaker_primary = _CircuitBreaker()
+_breaker_fallback = _CircuitBreaker()
 
 
-def fetch_flight_eta(flight_number: str, flight_date: str) -> datetime:
-    """Return actual ETA (UTC) for a flight. Raises FlightTrackerError on failure.
+def _call_provider(provider: str, flight_number: str, flight_date: str) -> datetime:
+    if provider == "mock":
+        return _mock_fetch(flight_number, flight_date)
+    if provider == "aviation_edge":
+        return _aviation_edge_fetch(flight_number, flight_date)
+    if provider == "aerodatabox":
+        return _aerodatabox_fetch(flight_number, flight_date)
+    raise FlightTrackerError(f"unknown_provider:{provider}")
+
+
+def fetch_flight_eta(flight_number: str, flight_date: str) -> datetime | None:
+    """Return actual ETA (UTC) for a flight, or None if all providers fail (degraded).
+
+    Cascade:
+      1. Primary provider (FLIGHT_TRACKER_PROVIDER)
+      2. Fallback provider (FLIGHT_TRACKER_FALLBACK_PROVIDER), if set
+      3. Returns None — caller must use static flightTime and set trackingStatus="degraded"
 
     flight_date format: "YYYY-MM-DD"
     """
-    if _breaker.is_open():
-        raise FlightTrackerError("circuit_open")
+    primary = os.environ.get("FLIGHT_TRACKER_PROVIDER", "mock")
+    fallback = os.environ.get("FLIGHT_TRACKER_FALLBACK_PROVIDER", "")
 
-    provider = os.environ.get("FLIGHT_TRACKER_PROVIDER", "mock")
+    # ── Primary ──────────────────────────────────────────────────────
+    if not _breaker_primary.is_open():
+        try:
+            eta = _call_provider(primary, flight_number, flight_date)
+            _breaker_primary.record_success()
+            return eta
+        except FlightTrackerError as exc:
+            _breaker_primary.record_failure(primary)
+            logger.warning("flight_tracker_primary_failed", provider=primary, error=str(exc))
+        except Exception as exc:
+            _breaker_primary.record_failure(primary)
+            logger.warning("flight_tracker_primary_unexpected", provider=primary, error=str(exc))
+    else:
+        logger.info("flight_tracker_primary_circuit_open", provider=primary)
 
-    try:
-        if provider == "mock":
-            eta = _mock_fetch(flight_number, flight_date)
-        elif provider == "aviation_edge":
-            eta = _aviation_edge_fetch(flight_number, flight_date)
-        elif provider == "aerodatabox":
-            eta = _aerodatabox_fetch(flight_number, flight_date)
-        else:
-            raise FlightTrackerError(f"unknown_provider:{provider}")
+    # ── Fallback ─────────────────────────────────────────────────────
+    if fallback and not _breaker_fallback.is_open():
+        try:
+            eta = _call_provider(fallback, flight_number, flight_date)
+            _breaker_fallback.record_success()
+            logger.info("flight_tracker_fallback_used", provider=fallback)
+            return eta
+        except FlightTrackerError as exc:
+            _breaker_fallback.record_failure(fallback)
+            logger.warning("flight_tracker_fallback_failed", provider=fallback, error=str(exc))
+        except Exception as exc:
+            _breaker_fallback.record_failure(fallback)
+            logger.warning("flight_tracker_fallback_unexpected", provider=fallback, error=str(exc))
+    elif fallback and _breaker_fallback.is_open():
+        logger.info("flight_tracker_fallback_circuit_open", provider=fallback)
 
-        _breaker.record_success()
-        return eta
-
-    except FlightTrackerError:
-        _breaker.record_failure()
-        raise
-    except Exception as exc:
-        _breaker.record_failure()
-        raise FlightTrackerError(f"unexpected:{exc}") from exc
+    # ── Degraded ─────────────────────────────────────────────────────
+    logger.error("flight_tracker_all_providers_failed", primary=primary, fallback=fallback or "none")
+    return None
 
 
 # ── Provider implementations ──────────────────────────────────────────

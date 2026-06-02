@@ -68,7 +68,8 @@ class AirportConfig:
 
     # v4 — Elastic & Predictive
     max_detour_minutes: int = 15
-    flight_tracker_provider: str = "mock"  # "aviation_edge" | "flightaware" | "mock"
+    flight_tracker_provider: str = "mock"  # "aviation_edge" | "aerodatabox" | "mock"
+    flight_tracker_fallback_provider: str = ""  # empty = no fallback
 
     # Sprint 5 — Payment Deadlock Resolution
     unlock_timeout_minutes: int = 120
