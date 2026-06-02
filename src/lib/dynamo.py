@@ -261,12 +261,18 @@ def create_tentative_match(
         {"Put": {
             "Item": to_ddb(updated_a),
             "TableName": os.environ["TABLE_NAME"],
-            "ConditionExpression": "attribute_exists(pk)",
+            # Guard: trip must still be scheduled — prevents double-assignment when two
+            # concurrent optimize_pool runs both see the same trip and race to claim it.
+            "ConditionExpression": "#s = :scheduled",
+            "ExpressionAttributeNames": {"#s": "status"},
+            "ExpressionAttributeValues": {":scheduled": {"S": "scheduled"}},
         }},
         {"Put": {
             "Item": to_ddb(updated_b),
             "TableName": os.environ["TABLE_NAME"],
-            "ConditionExpression": "attribute_exists(pk)",
+            "ConditionExpression": "#s = :scheduled",
+            "ExpressionAttributeNames": {"#s": "status"},
+            "ExpressionAttributeValues": {":scheduled": {"S": "scheduled"}},
         }},
     ])
 

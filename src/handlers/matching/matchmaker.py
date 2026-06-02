@@ -255,14 +255,25 @@ def optimize_pool(airport: AirportConfig, now: datetime) -> int:
             metrics.add_metric(name="MatchesLocked", unit=MetricUnit.Count, value=1)
             continue
 
-        dynamo.create_tentative_match(
-            trip_a, trip_b,
-            score=score,
-            dist_km=dist_km,
-            detour_min=detour_min,
-            lock_at=lock_at,
-            airport_code=airport.code,
-        )
+        try:
+            dynamo.create_tentative_match(
+                trip_a, trip_b,
+                score=score,
+                dist_km=dist_km,
+                detour_min=detour_min,
+                lock_at=lock_at,
+                airport_code=airport.code,
+            )
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "TransactionCanceledException":
+                # Concurrent optimize_pool already claimed one of these trips — skip.
+                logger.info(
+                    "tentative_match_concurrent_skip",
+                    tripId1=trip_a_id,
+                    tripId2=trip_b_id,
+                )
+                continue
+            raise
         tentative_created += 1
         metrics.add_metric(name="TentativeMatchesCreated", unit=MetricUnit.Count, value=1)
 
