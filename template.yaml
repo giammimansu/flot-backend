@@ -833,6 +833,93 @@ Resources:
             Path: /matches/{matchId}/decline
             Method: POST
 
+  # ── Admin (IAM auth) ──────────────────────────────────────────────
+
+  AdminVoidMatchFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-admin-void-match-${Stage}
+      Handler: handlers.admin.void_match.handler
+      CodeUri: src/
+      Description: POST /admin/matches/{matchId}/void — force void PI + dissolve
+      Environment:
+        Variables:
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref FlotEventBus
+      Events:
+        AdminVoidMatch:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FlotApi
+            Path: /admin/matches/{matchId}/void
+            Method: POST
+            Auth:
+              Authorizer: NONE
+
+  AdminRepoolTripFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-admin-repool-trip-${Stage}
+      Handler: handlers.admin.repool_trip.handler
+      CodeUri: src/
+      Description: POST /admin/trips/{tripId}/repool — manually repool trip
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+      Events:
+        AdminRepoolTrip:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FlotApi
+            Path: /admin/trips/{tripId}/repool
+            Method: POST
+            Auth:
+              Authorizer: NONE
+
+  AdminInspectMatchFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-admin-inspect-match-${Stage}
+      Handler: handlers.admin.inspect_match.handler
+      CodeUri: src/
+      Description: GET /admin/matches/{matchId}/inspect — full match state
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref FlotTable
+      Events:
+        AdminInspectMatch:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FlotApi
+            Path: /admin/matches/{matchId}/inspect
+            Method: GET
+            Auth:
+              Authorizer: NONE
+
+  AdminRefreshEtaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-admin-refresh-eta-${Stage}
+      Handler: handlers.admin.refresh_eta.handler
+      CodeUri: src/
+      Description: POST /admin/flights/{tripId}/refresh-eta — force ETA re-fetch
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+      Events:
+        AdminRefreshEta:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FlotApi
+            Path: /admin/flights/{tripId}/refresh-eta
+            Method: POST
+            Auth:
+              Authorizer: NONE
+
   # ── Events ─────────────────────────────────────────────────────────
 
   OnTripCreatedFunction:

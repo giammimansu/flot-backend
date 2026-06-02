@@ -13,6 +13,16 @@ import boto3
 import pytest
 from moto import mock_aws
 
+# Set TABLE_NAME before any test-file-level imports can load lib.dynamo,
+# otherwise the module-level _table = Table(os.environ.get("TABLE_NAME","Flot"))
+# would point to the wrong table name when the full suite runs.
+os.environ.setdefault("TABLE_NAME", "Flot-test")
+os.environ.setdefault("AWS_DEFAULT_REGION", "eu-south-1")
+os.environ.setdefault("AWS_ACCESS_KEY_ID", "testing")
+os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "testing")
+os.environ.setdefault("POWERTOOLS_SERVICE_NAME", "flot-test")
+os.environ.setdefault("POWERTOOLS_METRICS_NAMESPACE", "FlotTest")
+
 
 # ── Environment Variables (set before any imports that read them) ─────
 
