@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flot — Documentazione di progetto</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #f7fafc;
+    --bg-1:      #ffffff;
+    --bg-2:      #f1f5f9;
+    --bg-3:      #e8eef5;
+    --bg-code:   #f8fafc;
+    --border:    #d7e0ea;
+    --border-2:  #c7d3e0;
+    --ink:       #0f172a;
+    --ink-2:     #334155;
+    --ink-3:     #64748b;
+    --ink-4:     #94a3b8;
+    --accent:    #0ea5a4;
+    --accent-2:  #0f766e;
+    --amber:     #b45309;
+    --amber-soft:#fdeccf;
+    --violet:    #6d28d9;
+    --pink:      #be185d;
+    --green:     #15803d;
+    --blue:      #1d4ed8;
+    --orange:    #c2410c;
+    --red:       #b91c1c;
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+    --sans: 'Sora', system-ui, sans-serif;
+    --display: 'Space Grotesk', system-ui, sans-serif;
+    --sidebar-w: 280px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.6;
+    font-size: 15px;
+    -webkit-font-smoothing: antialiased;
+  }
+  body::before {
+    content: "";
+    position: fixed; inset: 0;
+    background:
+      radial-gradient(680px 460px at 82% -8%, rgba(14,165,164,0.12), transparent 70%),
+      radial-gradient(560px 420px at 0% 100%, rgba(29,78,216,0.08), transparent 70%);
+    pointer-events: none; z-index: 0;
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    position: fixed; top: 0; left: 0; bottom: 0;
+    width: var(--sidebar-w);
+    background: var(--bg-1);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    z-index: 40;
+    padding: 0 0 40px;
+  }
+  .sidebar::-webkit-scrollbar { width: 8px; }
+  .sidebar::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 8px; }
+  .brand {
+    display: flex; align-items: center; gap: 12px;
+    padding: 22px 22px 18px;
+    position: sticky; top: 0;
+    background: var(--bg-1);
+    border-bottom: 1px solid var(--border);
+    z-index: 2;
+  }
+  .brand-glyph {
+    width: 34px; height: 34px; border-radius: 9px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    display: grid; place-items: center;
+    font-family: var(--display); font-weight: 700; font-size: 18px;
+    color: #ffffff; flex-shrink: 0;
+    box-shadow: 0 4px 14px rgba(14,165,164,0.22);
+  }
+  .brand-name { font-family: var(--display); font-weight: 700; font-size: 19px; letter-spacing: -0.4px; }
+  .brand-tag { font-size: 11px; color: var(--ink-3); font-family: var(--mono); }
+  nav { padding: 14px 12px 0; }
+  .nav-group-label {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 1.2px;
+    color: var(--ink-4); font-weight: 600;
+    padding: 16px 12px 7px;
+  }
+  nav a {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; border-radius: 8px;
+    color: var(--ink-2); text-decoration: none;
+    font-size: 13.5px; font-weight: 400;
+    transition: background .12s, color .12s;
+  }
+  nav a .num {
+    font-family: var(--mono); font-size: 11px; color: var(--ink-4);
+    min-width: 16px;
+  }
+  nav a:hover { background: var(--bg-2); color: var(--ink); }
+  nav a.active { background: var(--bg-3); color: var(--accent); font-weight: 500; }
+  nav a.active .num { color: var(--accent); }
+
+  /* ── Main ── */
+  .main { margin-left: var(--sidebar-w); position: relative; z-index: 1; }
+  .topbar {
+    position: sticky; top: 0; z-index: 30;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; padding: 13px 40px;
+    background: rgba(247,250,252,0.9);
+    backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar-left { display: flex; align-items: center; gap: 14px; }
+  .hamburger {
+    display: none; background: var(--bg-2); border: 1px solid var(--border);
+    color: var(--ink); width: 38px; height: 38px; border-radius: 9px;
+    cursor: pointer; font-size: 18px;
+  }
+  .ver-pill {
+    font-family: var(--mono); font-size: 11.5px; font-weight: 600;
+    padding: 4px 11px; border-radius: 20px;
+    background: linear-gradient(135deg, rgba(14,165,164,0.15), rgba(29,78,216,0.1));
+    border: 1px solid var(--border-2); color: var(--accent);
+  }
+  .last-mod {
+    display: flex; align-items: center; gap: 9px;
+    font-size: 12.5px; color: var(--ink-3);
+  }
+  .last-mod label { font-family: var(--mono); font-size: 11px; color: var(--ink-4); }
+  .last-mod input {
+    background: var(--bg-2); border: 1px solid var(--border);
+    color: var(--ink-2); border-radius: 7px; padding: 5px 9px;
+    font-family: var(--mono); font-size: 12px;
+  }
+  .last-mod input:focus { outline: none; border-color: var(--accent-2); }
+
+  .content { max-width: 920px; margin: 0 auto; padding: 30px 40px 120px; }
+
+  section { padding-top: 46px; margin-top: -20px; }
+  section > h2 {
+    font-family: var(--display); font-size: 30px; font-weight: 700;
+    letter-spacing: -0.8px; margin-bottom: 6px;
+    display: flex; align-items: baseline; gap: 14px;
+  }
+  section > h2 .sec-num {
+    font-family: var(--mono); font-size: 15px; font-weight: 600;
+    color: var(--accent); opacity: 0.7;
+  }
+  .sec-lead { color: var(--ink-2); font-size: 16px; margin-bottom: 26px; max-width: 70ch; }
+  h3 {
+    font-family: var(--display); font-size: 19px; font-weight: 600;
+    margin: 34px 0 12px; letter-spacing: -0.3px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  h4 { font-family: var(--display); font-size: 15.5px; font-weight: 600; margin: 22px 0 9px; color: var(--ink); }
+  p { margin-bottom: 13px; color: var(--ink-2); }
+  p.tight { margin-bottom: 6px; }
+  strong, b { color: var(--ink); font-weight: 600; }
+  a.inline { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--accent-2); }
+  ul, ol { margin: 0 0 14px 22px; color: var(--ink-2); }
+  li { margin-bottom: 6px; }
+  code.ic {
+    font-family: var(--mono); font-size: 12.5px;
+    background: var(--bg-3); border: 1px solid var(--border);
+    padding: 1.5px 6px; border-radius: 5px; color: var(--accent);
+  }
+
+  /* ── Code blocks ── */
+  .code-wrap { position: relative; margin: 14px 0 20px; }
+  .code-head {
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--bg-2); border: 1px solid var(--border); border-bottom: none;
+    border-radius: 10px 10px 0 0; padding: 7px 14px;
+  }
+  .code-lang { font-family: var(--mono); font-size: 11px; color: var(--ink-3); letter-spacing: .5px; text-transform: uppercase; }
+  .copy-btn {
+    font-family: var(--mono); font-size: 11px; color: var(--ink-2);
+    background: var(--bg-3); border: 1px solid var(--border-2);
+    border-radius: 6px; padding: 4px 10px; cursor: pointer;
+    transition: all .14s; display: flex; align-items: center; gap: 6px;
+  }
+  .copy-btn:hover { background: var(--accent); color: #ffffff; border-color: var(--accent); }
+  .copy-btn.copied { background: var(--green); color: #ffffff; border-color: var(--green); }
+  pre {
+    font-family: var(--mono); font-size: 12.8px; line-height: 1.65;
+    background: var(--bg-code); border: 1px solid var(--border);
+    border-radius: 0 0 10px 10px; padding: 16px 18px;
+    overflow-x: auto; color: #1f2937;
+  }
+  pre::-webkit-scrollbar { height: 9px; }
+  pre::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 8px; }
+  pre .kw  { color: var(--violet); }
+  pre .str { color: var(--green); }
+  pre .num { color: var(--orange); }
+  pre .com { color: var(--ink-4); font-style: italic; }
+  pre .fn  { color: var(--accent); }
+  pre .cls { color: var(--amber); }
+  pre .dec { color: var(--pink); }
+  pre .key { color: var(--blue); }
+
+  /* ── Tables ── */
+  .tbl-wrap { overflow-x: auto; margin: 14px 0 22px; border: 1px solid var(--border); border-radius: 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    background: var(--bg-2); text-align: left; padding: 11px 14px;
+    font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+    letter-spacing: .6px; color: var(--ink-3); font-weight: 600;
+    border-bottom: 1px solid var(--border); white-space: nowrap;
+  }
+  tbody td { padding: 10px 14px; border-bottom: 1px solid var(--border); color: var(--ink-2); vertical-align: top; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--bg-1); }
+  td code, th code { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+  td .mono { font-family: var(--mono); font-size: 12px; color: var(--ink); }
+
+  /* ── Callouts ── */
+  .callout {
+    border-radius: 11px; padding: 15px 17px 15px 17px;
+    margin: 16px 0 22px; border: 1px solid var(--border-2);
+    background: var(--bg-1); position: relative;
+    border-left: 3px solid var(--accent);
+  }
+  .callout.warn { border-left-color: var(--amber); }
+  .callout.crit { border-left-color: var(--red); }
+  .callout.info { border-left-color: var(--blue); }
+  .callout-title { font-weight: 600; color: var(--ink); margin-bottom: 5px; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout p { color: var(--ink-2); font-size: 13.5px; }
+
+  /* ── Rules list ── */
+  .rules { list-style: none; margin: 18px 0 24px; padding: 0; display: grid; gap: 10px; }
+  .rules li {
+    display: flex; gap: 13px; align-items: flex-start;
+    background: var(--bg-1); border: 1px solid var(--border);
+    border-left: 3px solid var(--red); border-radius: 10px;
+    padding: 13px 16px; font-size: 14px; color: var(--ink);
+  }
+  .rules li .rx {
+    font-family: var(--mono); font-weight: 700; color: var(--red);
+    flex-shrink: 0; font-size: 13px; margin-top: 1px;
+  }
+  .rules.copy li { border-left-color: var(--accent); }
+  .rules.copy li .rx { color: var(--accent); }
+
+  /* ── Stack grid ── */
+  .stack-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 16px 0 22px; }
+  .stack-card { background: var(--bg-1); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+  .stack-card h4 { margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+  .stack-card .dot { width: 9px; height: 9px; border-radius: 50%; }
+  .chip-row { display: flex; flex-wrap: wrap; gap: 7px; }
+  .chip {
+    font-family: var(--mono); font-size: 11.5px; padding: 4px 10px;
+    border-radius: 7px; background: var(--bg-3); border: 1px solid var(--border-2);
+    color: var(--ink-2);
+  }
+
+  /* ── Badges ── */
+  .badge { font-family: var(--mono); font-size: 10.5px; font-weight: 600; padding: 2.5px 8px; border-radius: 6px; letter-spacing: .4px; }
+  .b-done { background: rgba(95,210,138,0.14); color: var(--green); border: 1px solid rgba(95,210,138,0.3); }
+  .b-wip  { background: rgba(240,180,41,0.14); color: var(--amber); border: 1px solid rgba(240,180,41,0.3); }
+  .b-new  { background: rgba(157,140,255,0.16); color: var(--violet); border: 1px solid rgba(157,140,255,0.3); }
+
+  /* ── API accordion ── */
+  .base-info { display: flex; gap: 10px; flex-wrap: wrap; margin: 6px 0 22px; }
+  .base-chip {
+    font-family: var(--mono); font-size: 12px; padding: 7px 13px; border-radius: 9px;
+    background: var(--bg-1); border: 1px solid var(--border); color: var(--ink-2);
+  }
+  .base-chip b { color: var(--accent); }
+  .endpoint { border: 1px solid var(--border); border-radius: 11px; margin-bottom: 9px; overflow: hidden; background: var(--bg-1); }
+  .ep-head { display: flex; align-items: center; gap: 12px; padding: 11px 15px; cursor: pointer; user-select: none; transition: background .12s; }
+  .ep-head:hover { background: var(--bg-2); }
+  .method { font-family: var(--mono); font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 6px; min-width: 52px; text-align: center; letter-spacing: .5px; }
+  .GET    { background: rgba(95,210,138,0.15); color: var(--green); }
+  .POST   { background: rgba(90,169,240,0.15); color: var(--blue); }
+  .PUT    { background: rgba(240,148,74,0.15); color: var(--orange); }
+  .DELETE { background: rgba(240,106,106,0.15); color: var(--red); }
+  .WS     { background: rgba(157,140,255,0.15); color: var(--violet); }
+  .EVT    { background: rgba(255,122,184,0.15); color: var(--pink); }
+  .ep-path { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--ink); flex: 1; }
+  .ep-desc { font-size: 12px; color: var(--ink-3); }
+  .ep-auth { font-family: var(--mono); font-size: 10px; padding: 2px 7px; border-radius: 6px; background: var(--bg-3); color: var(--ink-3); border: 1px solid var(--border); }
+  .ep-auth.noauth { color: var(--amber); border-color: var(--amber-soft); }
+  .caret { color: var(--ink-3); transition: transform .2s; font-size: 12px; }
+  .caret.open { transform: rotate(90deg); }
+  .ep-body { display: none; padding: 0 15px 15px; border-top: 1px solid var(--border); }
+  .ep-body.open { display: block; }
+  .ep-body .block-label { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: .7px; color: var(--ink-3); margin: 15px 0 6px; }
+  .ep-body .notes { font-size: 13px; color: var(--ink-2); background: var(--bg-2); border-radius: 9px; padding: 11px 13px; margin-top: 13px; }
+  .ep-body pre { border-radius: 9px; border: 1px solid var(--border); }
+
+  /* ── State diagram ── */
+  .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin: 8px 0 18px; font-family: var(--mono); font-size: 12.5px; }
+  .st { padding: 6px 12px; border-radius: 8px; background: var(--bg-2); border: 1px solid var(--border-2); color: var(--ink); white-space: nowrap; }
+  .st.start { border-color: var(--accent-2); color: var(--accent); }
+  .st.term  { border-color: var(--green); color: var(--green); }
+  .st.bad   { border-color: var(--red); color: var(--red); }
+  .st.new   { border-color: var(--violet); color: var(--violet); }
+  .arr { color: var(--ink-4); }
+
+  footer { margin-left: var(--sidebar-w); border-top: 1px solid var(--border); padding: 26px 40px; color: var(--ink-4); font-size: 12.5px; font-family: var(--mono); position: relative; z-index: 1; }
+
+  .scrim { display: none; position: fixed; inset: 0; background: rgba(15,23,42,0.24); z-index: 35; }
+
+  @media (max-width: 980px) {
+    :root { --sidebar-w: 0px; }
+    .sidebar { transform: translateX(-100%); transition: transform .25s; width: 280px; }
+    .sidebar.open { transform: translateX(0); }
+    .hamburger { display: block; }
+    .main { margin-left: 0; }
+    footer { margin-left: 0; }
+    .content { padding: 24px 20px 100px; }
+    .topbar { padding: 11px 18px; }
+    .stack-grid { grid-template-columns: 1fr; }
+    .scrim.open { display: block; }
+    .last-mod label { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<aside class="sidebar" id="sidebar">
+  <div class="brand">
+    <div class="brand-glyph">F</div>
+    <div>
+      <div class="brand-name">Flot</div>
+      <div class="brand-tag">docs · v4 elastic</div>
+    </div>
+  </div>
+  <nav id="nav">
+    <div class="nav-group-label">Fondamenti</div>
+    <a href="#overview"><span class="num">01</span> Overview</a>
+    <a href="#backend"><span class="num">02</span> Architettura backend</a>
+    <div class="nav-group-label">Logica core</div>
+    <a href="#matching"><span class="num">03</span> Algoritmo di matching</a>
+    <a href="#lifecycle"><span class="num">04</span> Trip lifecycle</a>
+    <a href="#deadlock"><span class="num">05</span> Payment Deadlock</a>
+    <div class="nav-group-label">Interfacce</div>
+    <a href="#api"><span class="num">06</span> API Reference</a>
+    <a href="#frontend"><span class="num">07</span> Frontend</a>
+    <div class="nav-group-label">Disciplina</div>
+    <a href="#rules"><span class="num">08</span> Regole non negoziabili</a>
+    <a href="#copy"><span class="num">09</span> Copy &amp; tono di voce</a>
+    <a href="#changelog"><span class="num">10</span> Changelog</a>
+  </nav>
+</aside>
+<div class="scrim" id="scrim"></div>
+
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-left">
+      <button class="hamburger" id="hamburger">☰</button>
+      <span class="ver-pill">v4 — Elastic &amp; Predictive</span>
+    </div>
+    <div class="last-mod">
+      <label>Ultima modifica</label>
+      <input type="date" id="lastmod" value="2026-06-02">
+    </div>
+  </div>
+
+  <div class="content">
+
+  <!-- ══════════════ 1. OVERVIEW ══════════════ -->
+  <section id="overview">
+    <h2><span class="sec-num">01</span> Overview del progetto</h2>
+    <p class="sec-lead">Flot è un servizio di <strong>taxi-pooling da aeroporti</strong>: mette in contatto persone che atterrano nello stesso aeroporto e vanno nella stessa direzione, così possono dividere un taxi. <strong>Flot non è un taxi</strong> — è un servizio di matching. We don't drive you.</p>
+
+    <h3>Cos'è Flot</h3>
+    <p>Il prodotto risolve un problema concreto: il costo fisso elevato di un taxi dall'aeroporto al centro città. Invece di prenotare una corsa, l'utente trova qualcuno con cui condividere il taxi e ne divide il costo. Il modello di ricavo è un <em>Trip Pass</em> da €1,99 che ciascun utente paga per sbloccare il contatto reciproco una volta trovato un match.</p>
+
+    <div class="callout info">
+      <div class="callout-title">⌖ Aeroporto MVP</div>
+      <p>Il lancio è su un singolo aeroporto: <strong>Milano Malpensa (MXP)</strong>. L'intera architettura è però multi-aeroporto: aggiungere uno scalo significa aggiungere una entry in <code class="ic">airports.py</code>, senza modifiche al codice.</p>
+    </div>
+
+    <h3>Stack tecnico</h3>
+    <div class="stack-grid">
+      <div class="stack-card">
+        <h4><span class="dot" style="background:var(--accent)"></span> Frontend</h4>
+        <div class="chip-row">
+          <span class="chip">React 18</span><span class="chip">Vite</span>
+          <span class="chip">TypeScript strict</span><span class="chip">Zustand</span>
+          <span class="chip">Amplify v6</span><span class="chip">Stripe.js</span>
+          <span class="chip">WebSocket</span><span class="chip">FCM</span>
+          <span class="chip">CSS Modules</span><span class="chip">vite-plugin-pwa</span>
+        </div>
+      </div>
+      <div class="stack-card">
+        <h4><span class="dot" style="background:var(--violet)"></span> Backend</h4>
+        <div class="chip-row">
+          <span class="chip">Python 3.12</span><span class="chip">AWS SAM</span>
+          <span class="chip">DynamoDB Single-Table</span><span class="chip">Cognito</span>
+          <span class="chip">EventBridge</span><span class="chip">SNS</span>
+          <span class="chip">SES</span><span class="chip">Stripe</span>
+          <span class="chip">S3 + CloudFront</span><span class="chip">Powertools</span>
+        </div>
+      </div>
+    </div>
+
+    <h3>Versione corrente</h3>
+    <p>La versione attiva è <strong>v4 — Elastic &amp; Predictive</strong>, che introduce Flight Tracker, Shadow Pool con Tentative Match, soglia dinamica time-decay, corridoio direzionale e Payment Deadlock Resolution. Vedi il <a href="#changelog" class="inline">changelog</a> per la cronologia completa.</p>
+
+    <h3>Regole non negoziabili</h3>
+    <p>Lo sviluppo segue un insieme di regole inviolabili che garantiscono coerenza architetturale, sicurezza dei pagamenti e tono di voce. Sono raccolte nella sezione <a href="#rules" class="inline">Regole non negoziabili</a> e <a href="#copy" class="inline">Copy &amp; tono di voce</a>.</p>
+  </section>
+
+  <!-- ══════════════ 2. BACKEND ══════════════ -->
+  <section id="backend">
+    <h2><span class="sec-num">02</span> Architettura backend</h2>
+    <p class="sec-lead">Backend serverless interamente su AWS, gestito con SAM. Persistenza su una sola tabella DynamoDB con design Single-Table e sei GSI. Il matching gira sia in modo sincrono (Live) sia tramite un job EventBridge ogni 5 minuti (Scheduled).</p>
+
+    <h3>Stack AWS</h3>
+    <div class="code-wrap">
+      <div class="code-head"><span class="code-lang">infra</span><button class="copy-btn">Copia</button></div>
+<pre><span class="com"># Runtime &amp; IaC</span>
+Runtime:        Python 3.12 (arm64, SnapStart)
+IaC:            AWS SAM (template.yaml)
+Database:       DynamoDB (Single-Table, PAY_PER_REQUEST)
+Auth:           Cognito (Google + Apple social login)
+API:            API Gateway REST + WebSocket
+Payments:       Stripe (Auth &amp; Capture) + Stripe Identity
+Storage:        S3 + CloudFront CDN
+Events:         EventBridge (custom bus + scheduled rules)
+Queues:         SQS (DLQ)
+Notifications:  SES (email) + SNS (push) + WebSocket
+Monitoring:     CloudWatch + X-Ray + Powertools
+Config:         SSM Parameter Store
+Security:       WAF + Cognito Authorizer
+CI/CD:          GitHub Actions &rarr; sam build &rarr; sam deploy</pre>
+    </div>
+
+    <h3>DynamoDB Single-Table Design</h3>
+    <p>Tabella <code class="ic">Flot-{stage}</code>, partition key <code class="ic">pk</code> e sort key <code class="ic">sk</code> (entrambe String). Tutte le entità convivono nella stessa tabella; la chiave determina il tipo. DynamoDB è schemaless: i nuovi attributi (es. campi GPS) non richiedono migrazione.</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Entità</th><th>PK</th><th>SK</th><th>Attributi chiave</th></tr></thead>
+        <tbody>
+          <tr><td><span class="mono">User</span></td><td><code>USER#&lt;userId&gt;</code></td><td><code>PROFILE</code></td><td>email, name, photoUrl, blurredPhotoUrl, isPro, verified, lang, gender, ageGroup, pushToken, createdAt</td></tr>
+          <tr><td><span class="mono">Trip</span></td><td><code>TRIP#&lt;tripId&gt;</code></td><td><code>META</code></td><td>userId, <b>airportCode</b>, terminal, direction, destination, destLat, destLng, destPlaceId, destZone, flightNumber, flightTime, timeBucket, mode, status, tentativeMatchId, matchId, expiresAt, previousMatchPartners, createdAt</td></tr>
+          <tr><td><span class="mono">Match</span></td><td><code>MATCH#&lt;matchId&gt;</code></td><td><code>META</code></td><td>tripId1, tripId2, userId1, userId2, <b>airportCode</b>, status, score, unlockedBy[], firstUnlockAt, unlockDeadline, firstUnlockPaymentIntentId, dissolveReason, createdAt</td></tr>
+          <tr><td><span class="mono">Payment</span></td><td><code>PAYMENT#&lt;payId&gt;</code></td><td><code>META</code></td><td>matchId, userId, amount, currency, stripePaymentIntentId, status (authorized/captured/voided/failed), createdAt</td></tr>
+          <tr><td><span class="mono">TentativeMatch</span></td><td><code>TENTATIVE#&lt;tmId&gt;</code></td><td><code>META</code></td><td>tripId1, tripId2, userId1, userId2, airportCode, score, lockAt, gsi6pk, ttl, createdAt</td></tr>
+          <tr><td><span class="mono">WebSocketConn</span></td><td><code>CONN#&lt;connId&gt;</code></td><td><code>META</code></td><td>userId, connectedAt, ttl (24h)</td></tr>
+          <tr><td><span class="mono">ChatMessage</span></td><td><code>MATCH#&lt;matchId&gt;</code></td><td><code>MSG#&lt;ts&gt;</code></td><td>senderId, text, read, type (text/system), ttl (48h)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Global Secondary Indexes</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>GSI</th><th>PK</th><th>SK</th><th>Scopo</th></tr></thead>
+        <tbody>
+          <tr><td><span class="mono">GSI1‑TimeBucket</span></td><td><code>airportCode#timeBucket</code></td><td><code>createdAt</code></td><td>Query matching per bucket temporale (pool attivo). SK migrata da <code>destZone</code> a <code>createdAt</code> con il passaggio a GPS.</td></tr>
+          <tr><td><span class="mono">GSI2‑UserTrips</span></td><td><code>userId</code></td><td><code>createdAt</code></td><td>Cronologia trip dell'utente — dashboard "My Trips".</td></tr>
+          <tr><td><span class="mono">GSI3‑UserConn</span></td><td><code>userId</code></td><td><code>connId</code></td><td>WebSocket: trova la connessione attiva di un utente.</td></tr>
+          <tr><td><span class="mono">GSI4‑StripeIntent</span></td><td><code>stripePaymentIntentId</code></td><td>—</td><td>Lookup del pagamento dal webhook Stripe.</td></tr>
+          <tr><td><span class="mono">GSI5‑TripStatus</span></td><td><code>airportCode#status</code></td><td><code>flightTime</code></td><td>Matchmaker job: tutti i trip <code>scheduled</code> di un aeroporto ordinati per orario di volo.</td></tr>
+          <tr><td><span class="mono">GSI6‑TentativeMatch</span></td><td><code>airportCode#tentative</code></td><td><code>lockAt</code></td><td>Lock window v4: tentative match pronti per la promozione a definitivi a T‑3h.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Struttura directory <code class="ic">src/</code></h3>
+    <div class="code-wrap">
+      <div class="code-head"><span class="code-lang">tree</span><button class="copy-btn">Copia</button></div>
+<pre>flot-backend/
+&#9500;&#9472; src/
+&#9474;  &#9500;&#9472; handlers/
+&#9474;  &#9474;  &#9500;&#9472; flights/
+&#9474;  &#9474;  &#9474;  &#9492;&#9472; flight_tracker.py        <span class="com"># v4 — polling ETA voli</span>
+&#9474;  &#9474;  &#9500;&#9472; matching/
+&#9474;  &#9474;  &#9474;  &#9492;&#9472; matchmaker.py            <span class="com"># shadow pool + lock window</span>
+&#9474;  &#9474;  &#9500;&#9472; matches/
+&#9474;  &#9474;  &#9474;  &#9492;&#9472; unlock_match.py          <span class="com"># partially_unlocked + capture</span>
+&#9474;  &#9474;  &#9500;&#9472; trips/
+&#9474;  &#9474;  &#9474;  &#9492;&#9472; create_trip.py           <span class="com"># risolve ETA da flightNumber</span>
+&#9474;  &#9474;  &#9492;&#9472; events/
+&#9474;  &#9474;     &#9500;&#9472; on_match_found.py
+&#9474;  &#9474;     &#9500;&#9472; on_flight_delayed.py      <span class="com"># v4</span>
+&#9474;  &#9474;     &#9500;&#9472; on_tentative_created.py   <span class="com"># v4</span>
+&#9474;  &#9474;     &#9500;&#9472; on_partial_unlock.py      <span class="com"># deadlock</span>
+&#9474;  &#9474;     &#9500;&#9472; on_unlock_reminder.py     <span class="com"># deadlock</span>
+&#9474;  &#9474;     &#9492;&#9472; on_unlock_expired.py      <span class="com"># deadlock</span>
+&#9474;  &#9500;&#9472; lib/
+&#9474;  &#9474;  &#9500;&#9472; airports.py               <span class="com"># registry aeroporti — single source</span>
+&#9474;  &#9474;  &#9500;&#9472; matching.py               <span class="com"># score, threshold, detour</span>
+&#9474;  &#9474;  &#9500;&#9472; flight_tracker.py         <span class="com"># client API aviation</span>
+&#9474;  &#9474;  &#9500;&#9472; dynamo.py                 <span class="com"># client + transact_write</span>
+&#9474;  &#9474;  &#9500;&#9472; schedulers.py             <span class="com"># EventBridge Scheduler one-shot</span>
+&#9474;  &#9474;  &#9492;&#9472; validation.py             <span class="com"># Pydantic models</span>
+&#9474;  &#9492;&#9472; layers/shared/               <span class="com"># Powertools, Pydantic, Stripe, Pillow</span>
+&#9492;&#9472; template.yaml                   <span class="com"># SAM</span></pre>
+    </div>
+
+    <h3>SAM template — funzioni Lambda principali</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Funzione</th><th>Trigger</th><th>Ruolo</th></tr></thead>
+        <tbody>
+          <tr><td><span class="mono">MatchmakerFunction</span></td><td>EventBridge Scheduler (5 min)</td><td>Shadow pool: costruisce la compatibility matrix, crea/dissolve TentativeMatch, promuove a definitivi nella lock window.</td></tr>
+          <tr><td><span class="mono">FlightTrackerFunction</span></td><td>EventBridge Scheduler</td><td>Polling ETA voli da flightNumber, aggiorna flightTime; circuit breaker dopo 3 fallimenti.</td></tr>
+          <tr><td><span class="mono">UnlockTimeoutFunction</span></td><td>EventBridge Scheduler one-shot</td><td>Allo scadere del timeout: void auth + re-pool trip.</td></tr>
+          <tr><td><span class="mono">CreateTripFunction</span></td><td>API Gateway REST</td><td>Crea trip, risolve ETA, emette <code>trip.created</code>.</td></tr>
+          <tr><td><span class="mono">UnlockMatchFunction</span></td><td>API Gateway REST</td><td>Gestisce primo/secondo unlock, capture simultaneo.</td></tr>
+          <tr><td><span class="mono">StripeWebhookFunction</span></td><td>API Gateway (no auth)</td><td>Riconcilia eventi di pagamento.</td></tr>
+          <tr><td><span class="mono">WebSocket handlers</span></td><td>API Gateway WebSocket</td><td><code>$connect</code> / <code>$disconnect</code> / relay chat e typing.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ══════════════ 3. MATCHING ══════════════ -->
+  <section id="matching">
+    <h2><span class="sec-num">03</span> Algoritmo di matching</h2>
+    <p class="sec-lead">Il cuore del prodotto. Ogni coppia di trip candidati supera prima dei filtri binari, poi riceve uno <strong>score</strong> pesato. Le coppie sopra la soglia entrano nella compatibility matrix e vengono assegnate greedy. La v4 rende soglia e corridoio <em>elastici</em> nel tempo.</p>
+
+    <h3>Formula dello score</h3>
+    <p>Lo score finale combina tre componenti. In modalità Live i pesi sono <code class="ic">0.5 / 0.3 / 0.2</code>; in modalità Scheduled la distanza pesa di più (<code class="ic">0.6 / 0.2 / 0.2</code>).</p>
+    <div class="code-wrap">
+      <div class="code-head"><span class="code-lang">formula</span><button class="copy-btn">Copia</button></div>
+<pre>score = <span class="num">0.5</span> &times; distance_score
+      + <span class="num">0.3</span> &times; time_score
+      + <span class="num">0.2</span> &times; profile_score</pre>
+    </div>
+
+    <h4>Distance score (Haversine)</h4>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Distanza tra destinazioni</th><th>Score</th></tr></thead>
+      <tbody>
+        <tr><td>&le; 2 km</td><td><span class="mono">1.0</span></td></tr>
+        <tr><td>&le; 5 km</td><td><span class="mono">0.8</span></td></tr>
+        <tr><td>&le; 10 km</td><td><span class="mono">0.5</span></td></tr>
+        <tr><td>&le; 20 km</td><td><span class="mono">0.2</span></td></tr>
+        <tr><td>&gt; 20 km</td><td><span class="mono">0.0</span></td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>Time score (bucket da 10 minuti)</h4>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Delta temporale</th><th>Score</th></tr></thead>
+      <tbody>
+        <tr><td>Stesso bucket (0 min)</td><td><span class="mono">1.0</span></td></tr>
+        <tr><td>&plusmn; 10 min</td><td><span class="mono">0.7</span></td></tr>
+        <tr><td>&plusmn; 20 min</td><td><span class="mono">0.4</span></td></tr>
+        <tr><td>&gt; 20 min</td><td><span class="mono">0.0</span></td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>Profile score (bonus)</h4>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Condizione</th><th>Bonus</th></tr></thead>
+      <tbody>
+        <tr><td>Lingua condivisa</td><td><span class="mono">+0.1</span></td></tr>
+        <tr><td>Entrambi verified</td><td><span class="mono">+0.1</span></td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>Filtri binari pre-score</h3>
+    <p>Prima di calcolare lo score, ogni coppia deve superare tutti questi check; se ne fallisce uno, la coppia è scartata.</p>
+    <ul>
+      <li><strong>Stesso aeroporto</strong> — garantito dalla struttura delle query GSI1 (un trip MXP non matcha mai con FCO).</li>
+      <li><strong>Stessa direzione</strong> — <code class="ic">TO_MILAN</code> matcha solo con <code class="ic">TO_MILAN</code>.</li>
+      <li><strong>GPS presenti</strong> — un trip senza <code class="ic">destLat</code>/<code class="ic">destLng</code> viene scartato silenziosamente.</li>
+    </ul>
+
+    <h3>Soglia per aeroporto</h3>
+    <p>Ogni aeroporto definisce la sua <code class="ic">match_threshold</code> in <code class="ic">airports.py</code>. Per MXP la base è <strong>0.25</strong>. Mai hardcodare la soglia fuori dal config.</p>
+
+    <h3>Soglia dinamica v4 (time-decay)</h3>
+    <p>La soglia non è più costante: <code class="ic">compute_dynamic_threshold</code> la abbassa man mano che il volo si avvicina. Lontano dal volo il sistema è selettivo (aspetta combinazioni migliori); vicino alla lock window accetta tutto ciò che è compatibile.</p>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Ore al volo più imminente</th><th>Soglia</th></tr></thead>
+      <tbody>
+        <tr><td>&ge; 168h (7 giorni)</td><td><span class="mono">0.70</span></td></tr>
+        <tr><td>&ge; 48h</td><td><span class="mono">0.50</span></td></tr>
+        <tr><td>&ge; 24h</td><td><span class="mono">0.35</span></td></tr>
+        <tr><td>&ge; 6h</td><td><span class="mono">base (0.25)</span></td></tr>
+        <tr><td>&lt; 6h (lock imminente)</td><td><span class="mono">max(0.20, base − 0.05)</span></td></tr>
+      </tbody>
+    </table></div>
+    <div class="code-wrap">
+      <div class="code-head"><span class="code-lang">python · src/lib/matching.py</span><button class="copy-btn">Copia</button></div>
+<pre><span class="kw">def</span> <span class="fn">compute_dynamic_threshold</span>(
+    base_threshold: <span class="cls">float</span>,
+    flight_time_a: <span class="cls">str</span>,
+    flight_time_b: <span class="cls">str</span>,
+    now: <span class="cls">datetime</span>,
+) -> <span class="cls">float</span>:
+    <span class="str">"""Time-decay: selettivo lontano dal volo, lasco vicino al lock."""</span>
+    dt_a = datetime.fromisoformat(flight_time_a.replace(<span class="str">"Z"</span>, <span class="str">"+00:00"</span>))
+    dt_b = datetime.fromisoformat(flight_time_b.replace(<span class="str">"Z"</span>, <span class="str">"+00:00"</span>))
+    hours_to_flight = <span class="fn">min</span>(
+        (dt_a - now).total_seconds() / <span class="num">3600</span>,
+        (dt_b - now).total_seconds() / <span class="num">3600</span>,
+    )
+    hours_to_flight = <span class="fn">max</span>(<span class="num">0</span>, hours_to_flight)
+
+    <span class="kw">if</span> hours_to_flight &gt;= <span class="num">168</span>:  <span class="kw">return</span> <span class="num">0.70</span>
+    <span class="kw">if</span> hours_to_flight &gt;= <span class="num">48</span>:   <span class="kw">return</span> <span class="num">0.50</span>
+    <span class="kw">if</span> hours_to_flight &gt;= <span class="num">24</span>:   <span class="kw">return</span> <span class="num">0.35</span>
+    <span class="kw">if</span> hours_to_flight &gt;= <span class="num">6</span>:    <span class="kw">return</span> base_threshold
+    <span class="kw">return</span> <span class="fn">max</span>(<span class="num">0.20</span>, base_threshold - <span class="num">0.05</span>)</pre>
+    </div>
+
+    <h3>Corridoio direzionale v4 (detour penalty)</h3>
+    <p>Al posto del limite radiale di 20 km, il sistema stima la <strong>deviazione in minuti</strong> che il tassista deve fare per servire entrambe le destinazioni nell'ordine ottimale (<code class="ic">estimate_detour_minutes</code>). Le rotte a "V" — destinazioni in direzioni opposte rispetto all'aeroporto — vengono penalizzate o escluse. La logica MVP usa un'approssimazione Haversine senza routing API; in v4.1 verrà sostituita con Google Routes API.</p>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Deviazione stimata</th><th>Penalità sullo score</th></tr></thead>
+      <tbody>
+        <tr><td>0–5 min</td><td>nessuna</td></tr>
+        <tr><td>5–15 min</td><td>lineare fino a <span class="mono">−0.2</span></td></tr>
+        <tr><td>&gt; 15 min (rotta a V)</td><td><span class="mono">−0.3</span> · oltre <code>max_detour_minutes</code> la coppia è esclusa</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>Shadow Pool v4</h3>
+    <p>Il Matchmaker non crea più match definitivi immediatamente. Crea <strong>TentativeMatch silenziosi</strong> — nessuna notifica all'utente — che vengono promossi a match definitivi solo nella <strong>lock window a T‑3h</strong>. Questo permette di rivedere le assegnazioni se nel frattempo arriva una combinazione migliore. L'idempotenza è garantita da <code class="ic">transact_write</code> con <code class="ic">ConditionExpression</code> sullo stato: se il trip non è più nello stato atteso, la transazione viene annullata (<code class="ic">TransactionCanceledException</code>) e l'operazione saltata senza errori.</p>
+    <div class="callout warn">
+      <div class="callout-title">⚠ Idempotenza obbligatoria</div>
+      <p>Il Matchmaker gira ogni 5 minuti e può vedere lo stesso pool più volte. Ogni promozione a definitivo usa una condition expression (<code class="ic">status IN (scheduled, tentative_match)</code>); una doppia esecuzione produce un <code class="ic">match_lock_skipped_idempotent</code> in log, non un doppio match.</p>
+    </div>
+    <div class="code-wrap">
+      <div class="code-head"><span class="code-lang">python · src/handlers/matching/matchmaker.py</span><button class="copy-btn">Copia</button></div>
+<pre>dynamo.transact_write([
+    {<span class="str">"Put"</span>: {<span class="str">"Item"</span>: dynamo.to_ddb(match_item), <span class="str">"TableName"</span>: table_name}},
+    {
+        <span class="str">"Put"</span>: {
+            <span class="str">"Item"</span>: dynamo.to_ddb(locked_a),
+            <span class="str">"TableName"</span>: table_name,
+            <span class="str">"ConditionExpression"</span>: <span class="str">"#s = :expected"</span>,
+            <span class="str">"ExpressionAttributeNames"</span>: {<span class="str">"#s"</span>: <span class="str">"status"</span>},
+            <span class="str">"ExpressionAttributeValues"</span>: {<span class="str">":expected"</span>: {<span class="str">"S"</span>: <span class="str">"tentative_match"</span>}},
+        }
+    },
+    <span class="com"># ... locked_b (stessa condition) + Delete del TentativeMatch</span>
+])</pre>
+    </div>
+    <div class="code-wrap">
+      <div class="code-head"><span class="code-lang">python · assegnazione greedy</span><button class="copy-btn">Copia</button></div>
+<pre><span class="kw">def</span> <span class="fn">find_optimal_assignments</span>(pairs: <span class="cls">list</span>[<span class="cls">tuple</span>]) -> <span class="cls">list</span>[<span class="cls">tuple</span>]:
+    <span class="str">"""Greedy: prende la coppia con score più alto, esclude i trip già</span>
+<span class="str">    accoppiati. O(n&sup2;) — sufficiente per pool MVP (&lt;100 trip)."""</span>
+    assigned = <span class="fn">set</span>()
+    assignments = []
+    <span class="kw">for</span> a_id, b_id, score, dist_km, detour_min <span class="kw">in</span> pairs:
+        <span class="kw">if</span> a_id <span class="kw">in</span> assigned <span class="kw">or</span> b_id <span class="kw">in</span> assigned:
+            <span class="kw">continue</span>
+        assignments.append((a_id, b_id, score, dist_km, detour_min))
+        assigned.add(a_id); assigned.add(b_id)
+    <span class="kw">return</span> assignments</pre>
+    </div>
+  </section>
+
+  <!-- ══════════════ 4. LIFECYCLE ══════════════ -->
+  <section id="lifecycle">
+    <h2><span class="sec-num">04</span> Trip lifecycle</h2>
+    <p class="sec-lead">Un trip nasce <code class="ic">scheduled</code> (modalità primaria) o <code class="ic">searching</code> (Live). Attraversa lo shadow pool, il lock, il flusso di unlock e termina in uno stato terminale. Dopo il lock a T‑3h il Matchmaker non ricalcola più il trip.</p>
+
+    <h3>Diagramma stati</h3>
+    <div class="flow">
+      <span class="st start">scheduled</span><span class="arr">&rarr;</span>
+      <span class="st new">tentative_match</span><span class="arr">&rarr;</span>
+      <span class="st">matched</span><span class="arr">&rarr;</span>
+      <span class="st new">partially_unlocked</span><span class="arr">&rarr;</span>
+      <span class="st">unlocked</span><span class="arr">&rarr;</span>
+      <span class="st term">completed</span>
+    </div>
+    <p class="tight">Stati terminali alternativi:</p>
+    <div class="flow">
+      <span class="st bad">expired</span>
+      <span class="st bad">unlock_expired</span>
+      <span class="st bad">dissolved</span>
+    </div>
+
+    <h3>Scheduled mode vs Live mode</h3>
+    <div class="code-wrap">
+      <div class="code-head"><span class="code-lang">lifecycle</span><button class="copy-btn">Copia</button></div>
+<pre><span class="com">SCHEDULED MODE (primaria):</span>
+  User crea trip con flightTime futuro &rarr; status: <span class="str">"scheduled"</span>
+    &rarr; Matchmaker (ogni 5 min) cerca candidati &plusmn;60 min
+    &rarr; tentative match silenzioso &rarr; lock a T-3h &rarr; <span class="str">"matched"</span>
+    &rarr; notifica Push + Email + WS
+    &rarr; nessun match entro flightTime + 2h &rarr; <span class="str">"expired"</span>
+
+<span class="com">LIVE MODE (secondaria):</span>
+  User crea trip con flightTime = now &rarr; status: <span class="str">"searching"</span>
+    &rarr; matching sincrono nell'handler search
+    &rarr; match &rarr; <span class="str">"matched"</span> &rarr; notifica WS
+    &rarr; timeout 5 min &rarr; <span class="str">"expired"</span></pre>
+    </div>
+
+    <h3>Scheduled Rule EventBridge (ogni 5 minuti)</h3>
+    <p>Una EventBridge Scheduled Rule invoca il <strong>MatchmakerFunction</strong> ogni 5 minuti. Il job legge via GSI5 tutti i trip <code class="ic">scheduled</code> di un aeroporto, costruisce la compatibility matrix con soglia dinamica e filtro detour, e aggiorna lo shadow pool.</p>
+
+    <h3>Lock window T‑3h</h3>
+    <div class="callout">
+      <div class="callout-title">⌖ Regola del lock</div>
+      <p>A <strong>T‑3h</strong> dal volo i tentative match vengono promossi a definitivi. Dopo il lock il Matchmaker <strong>non ricalcola più</strong> quel trip: la coppia è congelata e i due utenti vengono notificati. Questo dà certezza all'utente vicino alla partenza.</p>
+    </div>
+
+    <h3>Flight Tracker v4</h3>
+    <p>Quando un trip include <code class="ic">flightNumber</code> (obbligatorio in v4), il <strong>FlightTrackerFunction</strong> interroga periodicamente l'API di tracking voli per ottenere l'ETA reale e aggiornare automaticamente <code class="ic">flightTime</code>. Se un volo è in ritardo, l'evento <code class="ic">on_flight_delayed</code> verifica se il match esistente è ancora compatibile.</p>
+    <div class="callout warn">
+      <div class="callout-title">⚠ Circuit breaker</div>
+      <p>Se l'API di tracking fallisce <strong>3 volte consecutive</strong>, il circuit breaker si apre e il Flight Tracker smette di interrogarla, evitando di accumulare errori e costi. Il trip resta sul <code class="ic">flightTime</code> dichiarato dall'utente.</p>
+    </div>
+  </section>
+
+  <!-- ══════════════ 5. PAYMENT DEADLOCK ══════════════ -->
+  <section id="deadlock">
+    <h2><span class="sec-num">05</span> Payment Deadlock Resolution</h2>
+    <p class="sec-lead">Un match richiede che <strong>entrambi</strong> gli utenti paghino €1,99 per sbloccare il contatto. Il deadlock nasce quando solo un utente sblocca. La soluzione <strong>Smart Auto-Capture</strong> elimina il rischio percepito senza aggiungere step al funnel.</p>
+
+    <h3>Il problema</h3>
+    <ul>
+      <li><strong>Gioco del pollo</strong> — nessuno vuole pagare per primo ("e se l'altro non paga?").</li>
+      <li><strong>Asimmetria temporale</strong> — A paga, B è in volo / distratto / ignora la notifica.</li>
+      <li><strong>Trust debt</strong> — A vede l'auth pendente sull'estratto conto e si sente truffato.</li>
+    </ul>
+
+    <h3>La soluzione: Smart Auto-Capture</h3>
+    <p>Il funnel resta identico alla v3, zero step aggiuntivi. Le differenze:</p>
+    <ul>
+      <li><strong>Copy di trust</strong> sotto il CTA: "Charged ONLY when both unlock. No mutual unlock = no charge."</li>
+      <li><strong>Stato intermedio <code class="ic">partially_unlocked</code></strong>: quando un utente sblocca, il partner riceve notifiche urgenti con pressione sociale ("Marco ha già sbloccato!").</li>
+      <li><strong>Timeout con auto-void</strong>: se il partner non risponde entro <code class="ic">unlock_timeout_minutes</code> (MXP: 120 min), l'auth del primo viene annullata e il trip torna nel pool.</li>
+      <li><strong>Re-pool</strong>: il Matchmaker cerca automaticamente un nuovo partner per il trip ri-immesso.</li>
+    </ul>
+
+    <h3>Flusso</h3>
+    <div class="code-wrap">
+      <div class="code-head"><span class="code-lang">flow</span><button class="copy-btn">Copia</button></div>
+<pre>Utente A preme <span class="str">"Unlock"</span>
+  &rarr; Stripe PaymentIntent (capture_method: <span class="str">manual</span>) &rarr; auth hold &euro;1.99
+  &rarr; Match status: <span class="str">"partially_unlocked"</span>
+  &rarr; unlockDeadline = firstUnlockAt + unlock_timeout_minutes
+  &rarr; emette: match.partially_unlocked
+  &rarr; notifica URGENTE a B: <span class="str">"[A] ha sbloccato!"</span>
+  &rarr; crea EventBridge Scheduler one-shot per il timeout
+
+Utente B sblocca entro la deadline
+  &rarr; CAPTURE SIMULTANEO dei due PaymentIntent
+  &rarr; Match status: <span class="str">"unlocked"</span> &rarr; chat abilitata
+
+B NON risponde entro la deadline
+  &rarr; void PaymentIntent A (&euro;0 addebitati)
+  &rarr; Match status: <span class="str">"unlock_expired"</span>
+  &rarr; re-pool di entrambi i trip
+  &rarr; previousMatchPartners += partner non responsivo</pre>
+    </div>
+
+    <div class="callout crit">
+      <div class="callout-title">✖ Mai capture senza entrambi gli auth</div>
+      <p>Il capture del primo PaymentIntent avviene <strong>solo</strong> quando il secondo è stato autorizzato con successo. Se il capture del primo fallisce (es. auth scaduta), il secondo viene immediatamente annullato: nessun addebito unilaterale.</p>
+    </div>
+
+    <h3>previousMatchPartners</h3>
+    <p>Per evitare loop infiniti, un trip re-pooled porta la lista <code class="ic">previousMatchPartners</code>. Il Matchmaker filtra i candidati escludendo i partner non responsivi già incontrati, così lo stesso match fallito non si ripete.</p>
+
+    <h3>Stati del Match</h3>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Status</th><th>Descrizione</th><th>Transizioni</th></tr></thead>
+      <tbody>
+        <tr><td><code>pending</code></td><td>Match creato, nessuno ha sbloccato</td><td>&rarr; partially_unlocked, dissolved, unlock_expired</td></tr>
+        <tr><td><code>partially_unlocked</code> <span class="badge b-new">v4</span></td><td>Un utente ha sbloccato, auth hold attivo</td><td>&rarr; unlocked, unlock_expired, dissolved</td></tr>
+        <tr><td><code>unlocked</code></td><td>Entrambi hanno sbloccato, capture completato</td><td>&rarr; completed</td></tr>
+        <tr><td><code>unlock_expired</code> <span class="badge b-new">v4</span></td><td>Timeout scaduto, auth voided, trip re-pooled</td><td>terminale</td></tr>
+        <tr><td><code>dissolved</code> <span class="badge b-new">v4</span></td><td>Annullato (delay, no_response, user cancel, rematch)</td><td>terminale</td></tr>
+        <tr><td><code>completed</code></td><td>Viaggio completato</td><td>terminale</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="callout info">
+      <div class="callout-title">ⓘ Note di implementazione</div>
+      <p><code class="ic">partially_unlocked</code> è uno stato del <strong>Match</strong>, non del Trip: il trip resta <code class="ic">matched</code> durante l'attesa. I reminder sono EventBridge Scheduler one-shot con <code class="ic">ActionAfterCompletion: DELETE</code>, non polling. Il timeout è per-aeroporto (<code class="ic">unlock_timeout_minutes</code>), mai hardcoded. Con <code class="ic">FAKE_DOOR_MODE=true</code> l'unlock registra l'intent senza creare il PaymentIntent, ma simula comunque il flusso per testare la UX.</p>
+    </div>
+  </section>
+
+  <!-- ══════════════ 6. API REFERENCE ══════════════ -->
+  <section id="api">
+    <h2><span class="sec-num">06</span> API Reference</h2>
+    <p class="sec-lead">REST su API Gateway, WebSocket per il real-time, EventBridge per gli eventi interni. Tutti gli endpoint REST richiedono un JWT Cognito tranne il webhook Stripe.</p>
+
+    <div class="base-info">
+      <span class="base-chip"><b>REST</b> &nbsp;https://api.flot.app/{stage}</span>
+      <span class="base-chip"><b>WS</b> &nbsp;wss://ws.flot.app/{stage}</span>
+      <span class="base-chip"><b>Auth</b> &nbsp;Authorization: Bearer &lt;cognito-jwt&gt;</span>
+    </div>
+
+    <h3>Endpoint REST</h3>
+
+    <div class="endpoint">
+      <div class="ep-head"><span class="method GET">GET</span><span class="ep-path">/airports</span><span class="ep-desc">Aeroporti attivi</span><span class="ep-auth">JWT</span><span class="caret">&#9656;</span></div>
+      <div class="ep-body">
+        <div class="block-label">Response 200</div>
+<pre>[{
+  <span class="key">"code"</span>: <span class="str">"MXP"</span>, <span class="key">"name"</span>: <span class="str">"Milano Malpensa"</span>, <span class="key">"city"</span>: <span class="str">"Milano"</span>,
+  <span class="key">"currency"</span>: <span class="str">"EUR"</span>, <span class="key">"baseFare"</span>: <span class="num">12000</span>, <span class="key">"unlockFee"</span>: <span class="num">99</span>,
+  <span class="key">"terminals"</span>: [{ <span class="key">"code"</span>: <span class="str">"T1"</span>, <span class="key">"label"</span>: <span class="str">"Terminal 1"</span> }, ...],
+  <span class="key">"zones"</span>: [...], <span class="key">"directionLabels"</span>: [<span class="str">"TO_MILAN"</span>, <span class="str">"FROM_MILAN"</span>],
+  <span class="key">"searchTimeoutSec"</span>: <span class="num">300</span>, <span class="key">"scheduledMatchWindowMin"</span>: <span class="num">60</span>,
+  <span class="key">"scheduledAdvanceDays"</span>: <span class="num">7</span>, <span class="key">"active"</span>: <span class="kw">true</span>
+}]</pre>
+        <div class="notes"><b>Note:</b> serve il registry al frontend così la UI resta sincronizzata. Nessun dato aeroporto è hardcodato lato client.</div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-head"><span class="method GET">GET</span><span class="ep-path">/airports/:code/stats</span><span class="ep-desc">Statistiche aeroporto</span><span class="ep-auth">JWT</span><span class="caret">&#9656;</span></div>
+      <div class="ep-body">
+        <div class="block-label">Response 200</div>
+<pre>{ <span class="key">"totalSavingsMonth"</span>: <span class="num">1284700</span>, <span class="key">"weeklyMatches"</span>: <span class="num">42</span> }</pre>
+        <div class="notes">Importi in centesimi. Usati nei contatori della Home.</div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-head"><span class="method GET">GET</span><span class="ep-path">/users/me</span><span class="ep-desc">Profilo corrente</span><span class="ep-auth">JWT</span><span class="caret">&#9656;</span></div>
+      <div class="ep-body">
+        <div class="block-label">Response 200</div>
+<pre>{ <span class="key">"userId"</span>: <span class="str">"user_123"</span>, <span class="key">"email"</span>: <span class="str">"..."</span>, <span class="key">"name"</span>: <span class="str">"..."</span>,
+  <span class="key">"photoUrl"</span>: <span class="str">"..."</span>, <span class="key">"blurredPhotoUrl"</span>: <span class="str">"..."</span>,
+  <span class="key">"isPro"</span>: <span class="kw">false</span>, <span class="key">"verified"</span>: <span class="kw">true</span>, <span class="key">"lang"</span>: <span class="str">"it"</span> }</pre>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-head"><span class="method PUT">PUT</span><span class="ep-path">/users/me</span><span class="ep-desc">Aggiorna profilo</span><span class="ep-auth">JWT</span><span class="caret">&#9656;</span></div>
+      <div class="ep-body">
+        <div class="block-label">Request</div>
+<pre>{ <span class="key">"name"</span>: <span class="str">"..."</span>, <span class="key">"lang"</span>: <span class="str">"it"</span>, <span class="key">"gender"</span>: <span class="str">"..."</span>, <span class="key">"ageGroup"</span>: <span class="str">"..."</span> }</pre>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-head"><span class="method PUT">PUT</span><span class="ep-path">/users/me/photo</span><span class="ep-desc">Presigned URL upload foto</span><span class="ep-auth">JWT</span><span class="caret">&#9656;</span></div>
+      <div class="ep-body">
+        <div class="notes">Restituisce un presigned URL S3. Il blur della foto è applicato <b>server-side</b> (Gaussian σ=15) prima di esporre <code>blurredPhotoUrl</code>.</div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-head"><span class="method PUT">PUT</span><span class="ep-path">/users/me/push-token</span><span class="ep-desc">Registra push token</span><span class="ep-auth">JWT</span><span class="caret">&#9656;</span></div>
+      <div class="ep-body">
+        <div class="block-label">Request &middot; Response</div>
+<pre>{ <span class="key">"token"</span>: <span class="str">"fcm_token_xxx"</span>, <span class="key">"platform"</span>: <span class="str">"fcm"</span> }
+&rarr; { <span class="key">"registered"</span>: <span class="kw">true</span> }</pre>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-head"><span class="method POST">POST</span><span class="ep-path">/users/me/verify</span><span class="ep-desc">Avvia Stripe Identity</span><span class="ep-auth">JWT</span><span class="caret">&#9656;</span></div>
+      <div class="ep-body">
+        <div class="block-label">Response 200</div>
+<pre>{ <span class="key">"verificationSessionId"</span>: <span class="str">"vs_..."</span>, <span class="key">"clientSecret"</span>: <span class="str">"..."</span> }</pre>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-head"><span class="method POST">POST</span><span class="ep-path">/trips</span><span class="ep-desc">Crea un trip</span><span class="ep-auth">JWT</span><span class="caret">&#9656;</span></div>
+      <div class="ep-body">
+        <div class="block-label">Request</div>
+<pre>{ <span class="key">"airportCode"</span>: <span class="str">"MXP"</span>, <span class="key">"terminal"</span>: <span class="str">"T1"</span>,
+  <span class="key">"direction"</span>: <span class="str">"TO_MILAN"</span>, <span class="key">"destination"</span>: <span class="str">"Via Brera 28, Milano"</span>,
+  <span class="key">"destLat"</span>: <span class="num">45.4722</span>, <span class="key">"destLng"</span>: <span class="num">9.1878</span>, <span class="key">"destPlaceId"</span>: <span class="str">"ChIJ..."</span>,
+  <span class="key">"flightNumber"</span>: <span class="str">"AZ1234"</span>, <span class="key">"flightTime"</span>: <span class="str">"2026-04-26T14:30:00Z"</span>,
+  <span class="key">"paxCount"</span>: <span class="num">1</span>, <span class="key">"luggage"</span>: <span class="num">2</span> }</pre>
+        <div class="block-label">Response 201</div>
+<pre>{ <span class="key">"tripId"</span>: <span class="str">"trip_abc123"</span>, <span class="key">"airportCode"</span>: <span class="str">"MXP"</span>,
+  <span class="key">"mode"</span>: <span class="str">"scheduled"</span>, <span class="key">"status"</span>: <span class="str">"scheduled"</span>,
+  <span class="key">"flightTime"</span>: <span class="str">"2026-04-26T14:30:00Z"</span>,
+  <span class="key">"expiresAt"</span>: <span class="str">"2026-04-26T16:30:00Z"</span>, <span class="key">"createdAt"</span>: <span class="str">"..."</span> }</pre>
+        <div class="notes"><b>Note:</b> <code>destLat</code>/<code>destLng</code> obbligatori — un trip senza GPS è escluso dal matching. <code>flightNumber</code> obbligatorio in v4 per il Flight Tracker. <code>mode</code> è <code>scheduled</code> per voli futuri, <code>live</code> per flightTime ~now.</div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-head"><span class="method GET">GET</span><span class="ep-path">/trips/my</span><span class="ep-desc">Trip dell'utente</span><span class="ep-auth">JWT</span><span class="caret">&#9656;</span></div>
+      <div class="ep-body">
+        <div class="block-label">Response 200</div>
+<pre>{ <span class="key">"trips"</span>: [{ <span class="key">"tripId"</span>: <span class="str">"..."</span>, <span class="key">"status"</span>: <span class="str">"scheduled"</span>,
+  <span class="key">"mode"</span>: <span class="str">"scheduled"</span>, <span class="key">"matchId"</span>: <span class="kw">null</span>, ... }] }</pre>
+        <div class="notes">Ordinati <code>createdAt</code> desc. Tab "Attivi": scheduled/matched/unlocked. Tab "Passati": completed/expired/cancelled.</div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-head"><span class="method GET">GET</span><span class="ep-path">/trips/search</span><span class="ep-desc">Matching sincrono (solo Live)</span><span class="ep-auth">JWT</span><span class="caret">&#9656;</span></div>
+      <div class="ep-body"><div class="notes">Usato solo in Live mode: esegue il matching sincrono e restituisce un match o un timeout dopo 5 min.</div></div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-head"><span class="method GET">GET</span><span class="ep-path">/trips/:tripId</span><span class="ep-desc">Dettaglio trip</span><span class="ep-auth">JWT</span><span class="caret">&#9656;</span></div>
+      <div class="ep-body"><div class="notes">Restituisce lo stato corrente del trip e l'eventuale <code>matchId</code> associato.</div></div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-head"><span class="method DELETE">DELETE</span><span class="ep-path">/trips/:tripId</span><span class="ep-desc">Cancella trip schedulato</span><span class="ep-auth">JWT</span><span class="caret">&#9656;</span></div>
+      <div class="ep-body">
+        <div class="block-label">Response 200 &middot; Error 400</div>
+<pre>{ <span class="key">"tripId"</span>: <span class="str">"trip_abc123"</span>, <span class="key">"status"</span>: <span class="str">"cancelled"</span> }
+<span class="com">// 400 se già matched/unlocked</span>
+{ <span class="key">"error"</span>: <span class="str">"Cannot cancel a matched trip"</span> }</pre>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-head"><span class="method POST">POST</span><span class="ep-path">/trips/:tripId/unlock</span><span class="ep-desc">Sblocca un match</span><span class="ep-auth">JWT</span><span class="caret">&#9656;</span></div>
+      <div class="ep-body">
+        <div class="block-label">Request &middot; Response</div>
+<pre>{ <span class="key">"matchId"</span>: <span class="str">"match_xyz"</span> }
+&rarr; { <span class="key">"success"</span>: <span class="kw">true</span>, <span class="key">"matchStatus"</span>: <span class="str">"partially_unlocked"</span> }</pre>
+        <div class="notes"><b>Note:</b> crea un PaymentIntent con <code>capture_method: manual</code>. Primo unlock &rarr; <code>partially_unlocked</code>; secondo unlock &rarr; capture simultaneo &rarr; <code>unlocked</code>. Con <code>FAKE_DOOR_MODE=true</code> restituisce <code>{ fakeDoor: true }</code> senza Stripe.</div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-head"><span class="method GET">GET</span><span class="ep-path">/matches/:matchId</span><span class="ep-desc">Dettaglio match</span><span class="ep-auth">JWT</span><span class="caret">&#9656;</span></div>
+      <div class="ep-body">
+        <div class="block-label">Response — locked</div>
+<pre>{ <span class="key">"matchId"</span>: <span class="str">"match_xyz"</span>, <span class="key">"status"</span>: <span class="str">"pending"</span>, <span class="key">"score"</span>: <span class="num">0.85</span>,
+  <span class="key">"savings"</span>: <span class="num">60.00</span>, <span class="key">"unlockedBy"</span>: [], <span class="key">"unlockDeadline"</span>: <span class="kw">null</span>,
+  <span class="key">"partner"</span>: { <span class="key">"firstName"</span>: <span class="str">"Marco"</span>, <span class="key">"blurredPhotoUrl"</span>: <span class="str">"..."</span>,
+              <span class="key">"verified"</span>: <span class="kw">true</span> } }</pre>
+        <div class="notes">Locked: solo dati offuscati (nome, foto blurred). Unlocked: dati completi + meeting point + chat abilitata.</div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-head"><span class="method GET">GET</span><span class="ep-path">/matches/:matchId/chat</span><span class="ep-desc">Storico chat (paginato)</span><span class="ep-auth">JWT</span><span class="caret">&#9656;</span></div>
+      <div class="ep-body"><div class="notes">I messaggi hanno TTL 48h. Disponibile solo dopo <code>unlocked</code>.</div></div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-head"><span class="method GET">GET</span><span class="ep-path">/notifications</span><span class="ep-desc">Notifiche utente</span><span class="ep-auth">JWT</span><span class="caret">&#9656;</span></div>
+      <div class="ep-body"><div class="notes">Lista delle notifiche (match_found, unlock reminder, expired, ...).</div></div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-head"><span class="method POST">POST</span><span class="ep-path">/subscriptions</span><span class="ep-desc">Crea abbonamento PRO</span><span class="ep-auth">JWT</span><span class="caret">&#9656;</span></div>
+      <div class="ep-body"><div class="notes">Crea la subscription Stripe e imposta <code>isPro=true</code> all'attivazione.</div></div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-head"><span class="method DELETE">DELETE</span><span class="ep-path">/subscriptions/:subId</span><span class="ep-desc">Cancella abbonamento</span><span class="ep-auth">JWT</span><span class="caret">&#9656;</span></div>
+      <div class="ep-body"><div class="notes">A fine periodo imposta <code>isPro=false</code>.</div></div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-head"><span class="method POST">POST</span><span class="ep-path">/webhooks/stripe</span><span class="ep-desc">Webhook Stripe</span><span class="ep-auth noauth">NO AUTH</span><span class="caret">&#9656;</span></div>
+      <div class="ep-body"><div class="notes"><b>Unico endpoint senza JWT.</b> Riconcilia gli eventi di pagamento; il lookup avviene via GSI4 su <code>stripePaymentIntentId</code>.</div></div>
+    </div>
+
+    <h3>WebSocket events</h3>
+    <div class="endpoint">
+      <div class="ep-head"><span class="method WS">WS</span><span class="ep-path">$connect / $disconnect</span><span class="ep-desc">Validazione JWT, store/remove CONN</span><span class="caret">&#9656;</span></div>
+      <div class="ep-body"><div class="notes">Su <code>$connect</code> valida il JWT e salva <code>CONN#&lt;connId&gt;</code> (TTL 24h). Su <code>$disconnect</code> rimuove il record.</div></div>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Evento</th><th>Direzione</th><th>Payload</th></tr></thead>
+      <tbody>
+        <tr><td><code>match_found</code></td><td>push</td><td>Nuovo match disponibile (dati offuscati)</td></tr>
+        <tr><td><code>match_unlocked</code></td><td>push</td><td>Entrambi hanno pagato — dettagli completi + chat</td></tr>
+        <tr><td><code>chat_message</code></td><td>relay</td><td>Chat real-time tra utenti matchati</td></tr>
+        <tr><td><code>typing</code></td><td>relay</td><td>Indicatore di scrittura</td></tr>
+        <tr><td><code>trip_update</code></td><td>push</td><td>Cambio stato trip (scheduled&rarr;matched, expired)</td></tr>
+        <tr><td><code>payment_status</code></td><td>push</td><td>Conferma/fallimento pagamento</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>EventBridge events — bus <code class="ic">flot-events</code></h3>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Evento</th><th>Azione</th></tr></thead>
+      <tbody>
+        <tr><td><code>user.created</code></td><td>Welcome email (SES) + analytics</td></tr>
+        <tr><td><code>trip.created</code></td><td>[Live] matching sincrono / [Scheduled] conferma + primo scan</td></tr>
+        <tr><td><code>trip.cancelled</code></td><td>Cleanup trip schedulato</td></tr>
+        <tr><td><code>trip.expired</code></td><td>Notifica utente: trip scaduto senza match</td></tr>
+        <tr><td><code>trip.completed</code></td><td>Richiesta review + cleanup chat (TTL 48h)</td></tr>
+        <tr><td><code>match.found</code></td><td>Notifica WebSocket + Push + Email</td></tr>
+        <tr><td><code>match.partially_unlocked</code></td><td>Notifica urgente al partner + scheduler reminder</td></tr>
+        <tr><td><code>match.unlock_reminder</code></td><td>Reminder escalante push/email</td></tr>
+        <tr><td><code>match.unlock_expired</code></td><td>Void auth + re-pool trip</td></tr>
+        <tr><td><code>match.dissolved</code></td><td>Cleanup match (no_response, flight_delay, user_cancel, rematch)</td></tr>
+        <tr><td><code>payment.completed</code></td><td>Sblocco match + abilita chat</td></tr>
+        <tr><td><code>payment.voided</code></td><td>Notifica pagamento mutuo fallito</td></tr>
+        <tr><td><code>subscription.active / .ended</code></td><td>Aggiorna <code>isPro</code></td></tr>
+        <tr><td><code>schedule.matchmaker</code></td><td>Ogni 5 min: invoca MatchmakerFunction</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- ══════════════ 7. FRONTEND ══════════════ -->
+  <section id="frontend">
+    <h2><span class="sec-num">07</span> Frontend</h2>
+    <p class="sec-lead">SPA React 18 + Vite + TypeScript strict. PWA installabile, push via FCM, real-time via WebSocket nativo. Design system via CSS Modules, nessun dato aeroporto hardcodato.</p>
+
+    <h3>Flusso schermate</h3>
+    <div class="code-wrap">
+      <div class="code-head"><span class="code-lang">routes</span><button class="copy-btn">Copia</button></div>
+<pre>/                  Entry Point (login) &middot; "we don't drive you"
+  &darr;
+/airport           Airport Picker (skip se 1 solo aeroporto attivo)
+  &darr;
+/check-in          Travel Check-in (mode, terminal, direction, dest, flightTime, bags)
+  &darr; scheduled (default)        &darr; live
+/trip/:id          Trip Scheduled    /search   Active Search (radar 5 min)
+  &darr; push/email su match          &darr; match o timeout
+/match/:id         Match Locked &middot; unlock &euro;1.99
+  &darr;
+/connection/:id    Connection Unlocked (partner + chat)</pre>
+    </div>
+    <p>Tab bar sempre visibile dopo il login: <strong>Home</strong> (/check-in) &middot; <strong>My Trips</strong> (/my-trips) &middot; <strong>Profile</strong> (/profile).</p>
+
+    <h3>Stack e dipendenze chiave</h3>
+    <div class="chip-row" style="margin-bottom:22px">
+      <span class="chip">React 18 + Vite 5</span><span class="chip">TypeScript strict</span>
+      <span class="chip">Zustand (state)</span><span class="chip">React Hook Form + Zod</span>
+      <span class="chip">AWS Amplify v6</span><span class="chip">Stripe.js</span>
+      <span class="chip">WebSocket nativo</span><span class="chip">Firebase Cloud Messaging</span>
+      <span class="chip">vite-plugin-pwa</span><span class="chip">CSS Modules</span>
+    </div>
+
+    <h3>Sprint di sviluppo</h3>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Sprint</th><th>Contenuto</th><th>Stato</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>Setup, auth Cognito, routing, design system</td><td><span class="badge b-done">done</span></td></tr>
+        <tr><td>2</td><td>Check-in, creazione trip, airport store</td><td><span class="badge b-done">done</span></td></tr>
+        <tr><td>3</td><td>Match flow, unlock, connection, chat WS</td><td><span class="badge b-done">done</span></td></tr>
+        <tr><td>4</td><td>My Trips, Profile, push notifications, PWA</td><td><span class="badge b-done">done</span></td></tr>
+        <tr><td>5</td><td>Polish — Payment Deadlock UI, micro-interazioni</td><td><span class="badge b-wip">in corso</span></td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>Regole di codice frontend</h3>
+    <ul>
+      <li><strong>TypeScript strict</strong> — niente <code class="ic">any</code> impliciti, tipi API in <code class="ic">src/types/api.ts</code>.</li>
+      <li><strong>CSS Modules</strong> — niente CSS globale fuori dal design system.</li>
+      <li><strong>No hardcode airport data</strong> — zone, terminal, fari letti da <code class="ic">airportStore</code> (popolato da <code class="ic">GET /airports</code>).</li>
+    </ul>
+  </section>
+
+  <!-- ══════════════ 8. REGOLE ══════════════ -->
+  <section id="rules">
+    <h2><span class="sec-num">08</span> Regole di sviluppo non negoziabili</h2>
+    <p class="sec-lead">Queste regole sono inviolabili. Se un task richiede di romperne una, ci si ferma e lo si segnala prima di scrivere codice.</p>
+    <ul class="rules">
+      <li><span class="rx">01</span> Non hardcodare mai dati aeroporto fuori da <code class="ic">airports.py</code> / <code class="ic">airportStore</code>.</li>
+      <li><span class="rx">02</span> Ogni Trip e ogni Match devono portare <code class="ic">airportCode</code>.</li>
+      <li><span class="rx">03</span> Il blur della foto partner è sempre server-side (Gaussian σ=15).</li>
+      <li><span class="rx">04</span> Il Matchmaker deve essere idempotente (transact_write + condition expression).</li>
+      <li><span class="rx">05</span> Trip senza <code class="ic">destLat</code>/<code class="ic">destLng</code> sono esclusi silenziosamente dal matching.</li>
+      <li><span class="rx">06</span> Mai <code class="ic">print()</code> nel backend — solo <code class="ic">logger.info()</code> di Lambda Powertools.</li>
+      <li><span class="rx">07</span> Float in log e response: arrotondati a 2–3 decimali.</li>
+      <li><span class="rx">08</span> <code class="ic">FAKE_DOOR_MODE=true</code> va controllato prima di ogni capture Stripe.</li>
+      <li><span class="rx">09</span> <code class="ic">capture_method: 'manual'</code> obbligatorio per tutti i PaymentIntent.</li>
+      <li><span class="rx">10</span> TTL obbligatorio: chat messages 48h, WebSocket connections 24h.</li>
+      <li><span class="rx">11</span> Multi-entity updates DynamoDB: sempre <code class="ic">transact_write_items</code>.</li>
+      <li><span class="rx">12</span> TentativeMatch è silenzioso: nessuna notifica utente fino a <code class="ic">match.locked</code>.</li>
+    </ul>
+  </section>
+
+  <!-- ══════════════ 9. COPY ══════════════ -->
+  <section id="copy">
+    <h2><span class="sec-num">09</span> Copy &amp; tono di voce</h2>
+    <p class="sec-lead">Flot non è un taxi. Ogni parola deve ribadire che è un servizio di matching tra persone. "We don't drive you."</p>
+
+    <h4>Non scrivere mai</h4>
+    <ul class="rules">
+      <li><span class="rx">✖</span> "prendi un taxi con Flot"</li>
+      <li><span class="rx">✖</span> "la tua corsa"</li>
+      <li><span class="rx">✖</span> "prenota un taxi"</li>
+    </ul>
+
+    <h4>Scrivere sempre</h4>
+    <ul class="rules copy">
+      <li><span class="rx">✓</span> "trova qualcuno con cui condividere il taxi"</li>
+      <li><span class="rx">✓</span> "vi incontrate e dividete il costo"</li>
+      <li><span class="rx">✓</span> <strong>"we don't drive you"</strong> — obbligatoria in ogni versione dell'Entry Point.</li>
+      <li><span class="rx">✓</span> Il risparmio si esprime come <strong>"~€60"</strong> (la metà del costo fisso), mai come percentuale.</li>
+      <li><span class="rx">✓</span> <strong>"No match? No charge. Ever."</strong> — mostrata prima dei bottoni di login.</li>
+    </ul>
+  </section>
+
+  <!-- ══════════════ 10. CHANGELOG ══════════════ -->
+  <section id="changelog">
+    <h2><span class="sec-num">10</span> Changelog / versioni</h2>
+    <p class="sec-lead">Evoluzione del sistema di matching e dell'architettura, dalla prima versione a zone alla v4 elastica e predittiva.</p>
+
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Versione</th><th>Novità</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="mono">v2</span></td>
+          <td>Matching a <strong>zone predefinite</strong> (nord / centro / ovest / est / sud). GSI1 con SK = <code>destZone</code>.</td>
+        </tr>
+        <tr>
+          <td><span class="mono">v3</span></td>
+          <td>GPS <strong>Haversine</strong> al posto delle zone, <strong>Scheduled mode</strong>, Matchmaker ogni 5 min (EventBridge Scheduled Rule), <strong>push notifications</strong> (FCM/SNS). Nuovi endpoint <code>/trips/my</code>, <code>/trips/:id</code> DELETE, <code>/users/me/push-token</code>, <code>/notifications</code>.</td>
+        </tr>
+        <tr>
+          <td><span class="mono">v4</span> <span class="badge b-new">corrente</span></td>
+          <td><strong>Elastic &amp; Predictive</strong>: Flight Tracker (ETA da flightNumber + circuit breaker), Shadow Pool con Tentative Match, lock window T‑3h, <strong>soglia dinamica</strong> time-decay, <strong>corridoio direzionale</strong> con detour penalty, <strong>Payment Deadlock Resolution</strong> (Smart Auto-Capture). Nuovo GSI6, nuovi stati match.</td>
+        </tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+
+<footer>
+  Flot — documentazione di progetto · v4 Elastic &amp; Predictive · single source of truth
+</footer>
+
+<script>
+  // ── Sidebar mobile ──
+  const sidebar = document.getElementById('sidebar');
+  const scrim = document.getElementById('scrim');
+  document.getElementById('hamburger').addEventListener('click', () => {
+    sidebar.classList.toggle('open'); scrim.classList.toggle('open');
+  });
+  scrim.addEventListener('click', () => { sidebar.classList.remove('open'); scrim.classList.remove('open'); });
+
+  // ── Copy buttons ──
+  document.querySelectorAll('.copy-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const pre = btn.closest('.code-wrap').querySelector('pre');
+      const text = pre.innerText;
+      navigator.clipboard.writeText(text).then(() => {
+        const orig = btn.textContent;
+        btn.textContent = '✓ Copiato'; btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 1400);
+      });
+    });
+  });
+
+  // ── API accordion ──
+  document.querySelectorAll('.ep-head').forEach(head => {
+    head.addEventListener('click', () => {
+      const body = head.nextElementSibling;
+      const caret = head.querySelector('.caret');
+      if (body) { body.classList.toggle('open'); }
+      if (caret) { caret.classList.toggle('open'); }
+    });
+  });
+
+  // ── Scrollspy ──
+  const links = [...document.querySelectorAll('#nav a')];
+  const sections = links.map(a => document.querySelector(a.getAttribute('href')));
+  const obs = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        const id = e.target.id;
+        links.forEach(l => l.classList.toggle('active', l.getAttribute('href') === '#' + id));
+      }
+    });
+  }, { rootMargin: '-20% 0px -70% 0px' });
+  sections.forEach(s => s && obs.observe(s));
+
+  links.forEach(l => l.addEventListener('click', () => {
+    if (window.innerWidth <= 980) { sidebar.classList.remove('open'); scrim.classList.remove('open'); }
+  }));
+
+  // ── Last modified persists in-session ──
+  const lastmod = document.getElementById('lastmod');
+  lastmod.addEventListener('change', () => { document.title = 'Flot — docs (mod. ' + lastmod.value + ')'; });
+</script>
+</body>
+</html>
