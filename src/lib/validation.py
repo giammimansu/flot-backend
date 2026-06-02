@@ -140,3 +140,12 @@ class PushTokenUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     token: str = Field(..., min_length=1)
     platform: str = Field(..., pattern="^(fcm|apns)$")
+
+
+class ChatMessageCreate(BaseModel):
+    """Payload for WS action=chat_message. Extra WS routing fields (action) are ignored."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    matchId: str = Field(..., min_length=1)  # noqa: N815
+    text: str = Field(..., min_length=1, max_length=1000)

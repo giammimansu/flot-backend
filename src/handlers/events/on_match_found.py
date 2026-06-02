@@ -7,6 +7,7 @@ from __future__ import annotations
 from aws_lambda_powertools import Logger, Tracer
 
 from lib.notifications import notify_match_found
+from handlers.chat.system_message import post_match_confirmed
 
 logger = Logger()
 tracer = Tracer()
@@ -43,3 +44,9 @@ def handler(event: dict, context) -> None:
     }
     notify_match_found(user2, detail, u2_payload)
     logger.info("Notified user2", extra={"userId": user2})
+
+    # System message — posted once for the match
+    try:
+        post_match_confirmed(match_id)
+    except Exception:
+        logger.warning("system_message_failed", matchId=match_id)

@@ -795,6 +795,24 @@ Resources:
             Path: /matches/{matchId}
             Method: GET
 
+  GetChatFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-get-chat-${Stage}
+      Handler: handlers.matches.get_chat.handler
+      CodeUri: src/
+      Description: GET /matches/{matchId}/chat — paginated chat history
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref FlotTable
+      Events:
+        GetChat:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FlotApi
+            Path: /matches/{matchId}/chat
+            Method: GET
+
   DeclineMatchFunction:
     Type: AWS::Serverless::Function
     Properties:

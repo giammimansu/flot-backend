@@ -175,6 +175,56 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def save_chat_message(
+    match_id: str,
+    sender_id: str | None,
+    text: str,
+    msg_type: str = "user",
+) -> dict[str, Any]:
+    """Persist a ChatMessage. Returns the saved item.
+
+    Schema: pk=MATCH#<match_id>, sk=CHAT#<iso_ts>#<uuid>
+    msg_type: "user" | "system"
+    sender_id: user_id for user messages, None for system messages.
+    """
+    import uuid as _uuid
+    ts = now_iso()
+    msg_id = str(_uuid.uuid4())
+    item: dict[str, Any] = {
+        "pk": f"MATCH#{match_id}",
+        "sk": f"CHAT#{ts}#{msg_id}",
+        "matchId": match_id,
+        "messageId": msg_id,
+        "type": msg_type,
+        "text": text,
+        "createdAt": ts,
+    }
+    if sender_id:
+        item["senderId"] = sender_id
+    _table.put_item(Item=item)
+    return item
+
+
+def get_chat_messages(
+    match_id: str,
+    limit: int = 50,
+    exclusive_start_key: dict | None = None,
+) -> tuple[list[dict[str, Any]], dict | None]:
+    """Return chat messages for a match, oldest-first. Returns (items, next_key)."""
+    from boto3.dynamodb.conditions import Key
+
+    kwargs: dict[str, Any] = {
+        "KeyConditionExpression": Key("pk").eq(f"MATCH#{match_id}") & Key("sk").begins_with("CHAT#"),
+        "Limit": limit,
+        "ScanIndexForward": True,
+    }
+    if exclusive_start_key:
+        kwargs["ExclusiveStartKey"] = exclusive_start_key
+
+    resp = _table.query(**kwargs)
+    return resp.get("Items", []), resp.get("LastEvaluatedKey")
+
+
 def save_notification(user_id: str, payload: dict[str, Any]) -> None:
     import uuid
     _table.put_item(Item={
