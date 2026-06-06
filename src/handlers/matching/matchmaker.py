@@ -16,6 +16,7 @@ from botocore.exceptions import ClientError
 from lib import dynamo
 from lib.airports import get_active_airports, AirportConfig
 from lib.metrics import business_metrics
+from lib.trust import meets_threshold
 from lib.matching import (
     find_best_match,
     build_match_item,
@@ -475,6 +476,11 @@ def build_compatibility_matrix(
 
             user_a = dynamo.get_item(f"USER#{trip_a['userId']}", "PROFILE") or {}
             user_b = dynamo.get_item(f"USER#{trip_b['userId']}", "PROFILE") or {}
+
+            # P2 #10 — exclude low-trust / banned users from matching.
+            if not meets_threshold(user_a, airport) or not meets_threshold(user_b, airport):
+                continue
+
             score = compute_match_score(trip_a, trip_b, user_a, user_b, mode="scheduled")
             score = apply_detour_penalty(score, detour_min, airport.max_detour_minutes)
 

@@ -542,6 +542,44 @@ Resources:
             Path: /users/{userId}
             Method: GET
 
+  # Users: Public rating (P2 #11)
+  GetUserRatingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-get-user-rating-${Stage}
+      Handler: handlers.users.get_user_rating.handler
+      CodeUri: src/
+      Description: GET /users/{userId}/rating — public average rating
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref FlotTable
+      Events:
+        GetUserRating:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FlotApi
+            Path: /users/{userId}/rating
+            Method: GET
+
+  # Matches: Create review (P2 #11)
+  CreateReviewFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-create-review-${Stage}
+      Handler: handlers.matches.create_review.handler
+      CodeUri: src/
+      Description: POST /matches/{matchId}/review — rate partner post-completion
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+      Events:
+        CreateReview:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FlotApi
+            Path: /matches/{matchId}/review
+            Method: POST
+
   # Users: Register Push Token (auth required)
   RegisterPushTokenFunction:
     Type: AWS::Serverless::Function

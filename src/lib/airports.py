@@ -77,6 +77,11 @@ class AirportConfig:
     unlock_repool_enabled: bool = True
     unlock_no_response_dissolve_hours: int = 12
 
+    # P2 #10 — Reputation / anti-no-show
+    trust_threshold: float = 0.4            # trips below this trustScore are excluded from matching
+    trust_decrement_per_violation: float = 0.2  # subtracted on each no-show / no-response
+    trust_ban_violations: int = 3           # hard ban after N violations
+
 
 # ─────────────────────────────────────────────────────────────────────
 # Airport Registry
@@ -121,9 +126,55 @@ AIRPORTS: dict[str, AirportConfig] = {
         unlock_reminder_intervals=[30, 60, 90],
         unlock_repool_enabled=True,
         unlock_no_response_dissolve_hours=12,
+        trust_threshold=0.4,
+        trust_decrement_per_violation=0.2,
+        trust_ban_violations=3,
+    ),
+    # ── P2 #12 — Second real airport: Roma Fiumicino ─────────────────
+    # Validates that nothing is hardcoded outside this registry. Same shape
+    # as MXP; only the data differs (zones, terminals, direction labels).
+    "FCO": AirportConfig(
+        code="FCO",
+        name="Roma Fiumicino",
+        city="Roma",
+        country="IT",
+        currency="EUR",
+        base_fare=11000,   # ~€110 fixed fare FCO → Roma centro
+        unlock_fee=99,
+        timezone="Europe/Rome",
+        terminals=[
+            Terminal(code="T1", label="Terminal 1"),
+            Terminal(code="T3", label="Terminal 3"),
+        ],
+        zones=[
+            Zone(code="centro",   label="Centro",    lat=41.8931, lng=12.4828, radius_km=2.5, landmarks=["Colosseo", "Termini"]),
+            Zone(code="nord",     label="Nord",      lat=41.9300, lng=12.4900, radius_km=2.5, landmarks=["Parioli", "Flaminio"]),
+            Zone(code="ovest",    label="Ovest",     lat=41.8990, lng=12.4400, radius_km=2.5, landmarks=["Aurelio", "Vaticano"]),
+            Zone(code="sud",      label="Sud",       lat=41.8550, lng=12.4700, radius_km=2.5, landmarks=["EUR", "Ostiense"]),
+            Zone(code="est",      label="Est",       lat=41.8900, lng=12.5400, radius_km=2.5, landmarks=["Pigneto", "Centocelle"]),
+        ],
+        meeting_points={
+            "T1": MeetingPoint(label="Exit 1 · Arrivi", description="Piano terra · Taxi sharing", walk_minutes=6),
+            "T3": MeetingPoint(label="Exit 3 · Arrivi", description="Piano terra · Posteggio taxi", walk_minutes=7),
+        },
+        direction_labels=("TO_ROME", "FROM_ROME"),
+        search_timeout_sec=300,
+        max_wait_minutes=20,
+        scheduled_match_window_min=60,
+        scheduled_advance_days=7,
+        match_threshold=0.25,
+        active=True,
+        max_detour_minutes=15,
+        flight_tracker_provider="aviation_edge",
+        unlock_timeout_minutes=120,
+        unlock_reminder_intervals=[30, 60, 90],
+        unlock_repool_enabled=True,
+        unlock_no_response_dissolve_hours=12,
+        trust_threshold=0.4,
+        trust_decrement_per_violation=0.2,
+        trust_ban_violations=3,
     ),
     # ── Future airports (inactive until launch) ──────────────────────
-    # "FCO": AirportConfig(code="FCO", name="Roma Fiumicino", city="Roma", ...),
     # "CDG": AirportConfig(code="CDG", name="Paris Charles de Gaulle", city="Paris", ...),
     # "LHR": AirportConfig(code="LHR", name="London Heathrow", city="London", ...),
 }

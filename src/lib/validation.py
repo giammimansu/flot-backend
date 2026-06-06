@@ -142,6 +142,15 @@ class PushTokenUpdate(BaseModel):
     platform: str = Field(..., pattern="^(fcm|apns)$")
 
 
+class CreateReviewRequest(BaseModel):
+    """Payload for POST /matches/{matchId}/review (P2 #11)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rating: int = Field(..., ge=1, le=5)
+    comment: str | None = Field(None, max_length=500)
+
+
 class ChatMessageCreate(BaseModel):
     """Payload for WS action=chat_message. Extra WS routing fields (action) are ignored."""
 

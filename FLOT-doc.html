@@ -343,6 +343,7 @@
     <a href="#deadlock"><span class="num">05</span> Payment Deadlock</a>
     <a href="#p0-implementazioni"><span class="num">05b</span> P0 Implementazioni</a>
     <a href="#p1-implementazioni"><span class="num">05c</span> P1 Implementazioni</a>
+    <a href="#p2-implementazioni"><span class="num">05d</span> P2 Implementazioni</a>
     <div class="nav-group-label">Interfacce</div>
     <a href="#api"><span class="num">06</span> API Reference</a>
     <a href="#frontend"><span class="num">07</span> Frontend</a>
@@ -362,7 +363,7 @@
     </div>
     <div class="last-mod">
       <label>Ultima modifica</label>
-      <input type="date" id="lastmod" value="2026-06-02">
+      <input type="date" id="lastmod" value="2026-06-06">
     </div>
   </div>
 
@@ -378,7 +379,7 @@
 
     <div class="callout info">
       <div class="callout-title">⌖ Aeroporto MVP</div>
-      <p>Il lancio è su un singolo aeroporto: <strong>Milano Malpensa (MXP)</strong>. L'intera architettura è però multi-aeroporto: aggiungere uno scalo significa aggiungere una entry in <code class="ic">airports.py</code>, senza modifiche al codice.</p>
+      <p>Il lancio è su <strong>Milano Malpensa (MXP)</strong>. L'architettura è multi-aeroporto: aggiungere uno scalo significa aggiungere una entry in <code class="ic">airports.py</code>, senza modifiche al codice. A riprova, in P2 (#12) è stato onboardato <strong>Roma Fiumicino (FCO)</strong> — secondo aeroporto attivo, isolamento cross-airport verificato a test.</p>
     </div>
 
     <h3>Stack tecnico</h3>
@@ -443,13 +444,14 @@ CI/CD:          GitHub Actions &rarr; sam build &rarr; sam deploy</pre>
       <table>
         <thead><tr><th>Entità</th><th>PK</th><th>SK</th><th>Attributi chiave</th></tr></thead>
         <tbody>
-          <tr><td><span class="mono">User</span></td><td><code>USER#&lt;userId&gt;</code></td><td><code>PROFILE</code></td><td>email, name, photoUrl, blurredPhotoUrl, isPro, verified, lang, gender, ageGroup, pushToken, createdAt</td></tr>
+          <tr><td><span class="mono">User</span></td><td><code>USER#&lt;userId&gt;</code></td><td><code>PROFILE</code></td><td>email, name, photoUrl, blurredPhotoUrl, isPro, verified, lang, gender, ageGroup, pushToken, <b>trustScore</b>, <b>trustViolations</b>, <b>banned</b>, <b>ratingSum</b>, <b>ratingCount</b>, createdAt</td></tr>
           <tr><td><span class="mono">Trip</span></td><td><code>TRIP#&lt;tripId&gt;</code></td><td><code>META</code></td><td>userId, <b>airportCode</b>, terminal, direction, destination, destLat, destLng, destPlaceId, destZone, flightNumber, flightTime, timeBucket, mode, status, tentativeMatchId, matchId, expiresAt, previousMatchPartners, createdAt</td></tr>
           <tr><td><span class="mono">Match</span></td><td><code>MATCH#&lt;matchId&gt;</code></td><td><code>META</code></td><td>tripId1, tripId2, userId1, userId2, <b>airportCode</b>, status, score, unlockedBy[], firstUnlockAt, unlockDeadline, firstUnlockPaymentIntentId, dissolveReason, createdAt</td></tr>
           <tr><td><span class="mono">Payment</span></td><td><code>PAYMENT#&lt;payId&gt;</code></td><td><code>META</code></td><td>matchId, userId, amount, currency, stripePaymentIntentId, status (authorized/captured/voided/failed), createdAt</td></tr>
           <tr><td><span class="mono">TentativeMatch</span></td><td><code>TENTATIVE#&lt;tmId&gt;</code></td><td><code>META</code></td><td>tripId1, tripId2, userId1, userId2, airportCode, score, lockAt, gsi6pk, ttl, createdAt</td></tr>
           <tr><td><span class="mono">WebSocketConn</span></td><td><code>CONN#&lt;connId&gt;</code></td><td><code>META</code></td><td>userId, connectedAt, ttl (24h)</td></tr>
           <tr><td><span class="mono">ChatMessage</span></td><td><code>MATCH#&lt;matchId&gt;</code></td><td><code>MSG#&lt;ts&gt;</code></td><td>senderId, text, read, type (text/system), ttl (48h)</td></tr>
+          <tr><td><span class="mono">Review</span> <span class="badge b-new">P2</span></td><td><code>USER#&lt;reviewedUserId&gt;</code></td><td><code>REVIEW#&lt;matchId&gt;</code></td><td>reviewerId, rating (1-5), comment?, airportCode, createdAt — una per reviewer per match (idempotente)</td></tr>
         </tbody>
       </table>
     </div>
@@ -908,6 +910,61 @@ partially_unlocked → unlock_expired / dissolved / expired</pre>
     </div>
   </section>
 
+  <!-- ══════════════ 5d. P2 IMPLEMENTAZIONI (06/06/2026) ══════════════ -->
+  <section id="p2-implementazioni">
+    <h2><span class="sec-num">05d</span> P2 — Implementazioni (06/06/2026)</h2>
+    <p class="sec-lead">Sessione P2: crescita e difesa. Reputazione anti-no-show, rating a stelle, secondo aeroporto reale (FCO), verifica costi sotto carico. Roadmap chiusa.</p>
+
+    <h3>#10 — Reputazione / anti-no-show (src/lib/trust.py)</h3>
+    <p>Difesa contro abusi sistematici (no-show ripetuti, account che non sbloccano mai) che <code class="ic">previousMatchPartners</code> da solo non copre. Nuovo campo <code class="ic">trustScore</code> (float 0.0–1.0, default 1.0) sul profilo utente.</p>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Funzione</th><th>Comportamento</th></tr></thead>
+      <tbody>
+        <tr><td><code>record_violation(user_id, reason, airport)</code></td><td>Decrementa <code>trustScore</code> di <code>trust_decrement_per_violation</code> (floor 0.0), incrementa <code>trustViolations</code>, setta <code>banned=true</code> oltre <code>trust_ban_violations</code></td></tr>
+        <tr><td><code>meets_threshold(user, airport)</code></td><td>False se <code>banned</code> o <code>trustScore &lt; trust_threshold</code></td></tr>
+      </tbody>
+    </table></div>
+    <p><strong>Wiring:</strong> decremento su no-response in <code class="ic">on_unlock_expired.py</code>; filtro in <code class="ic">matchmaker.build_compatibility_matrix</code> (coppia scartata se uno dei due non supera la soglia); blocco a monte in <code class="ic">create_trip.py</code> (utente <code>banned</code> → 403). Tutte le soglie sono <strong>per-aeroporto</strong> in <code class="ic">airports.py</code> (<code class="ic">trust_threshold=0.4</code>, <code class="ic">trust_decrement_per_violation=0.2</code>, <code class="ic">trust_ban_violations=3</code>) — Regola 01 rispettata.</p>
+
+    <h3>#11 — Sistema di rating a stelle</h3>
+    <p>Si appende all'hook <code class="ic">review.requested</code> già emesso da <code class="ic">on_trip_completed</code> (#1). Nuova entity <strong>Review</strong> (<code class="ic">pk=USER#&lt;reviewedUserId&gt;</code>, <code class="ic">sk=REVIEW#&lt;matchId&gt;</code>). Aggregati <code class="ic">ratingSum</code>+<code class="ic">ratingCount</code> sul profilo, aggiornati nella stessa transazione del Put della review (Regola 11); media calcolata in lettura.</p>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Endpoint</th><th>Handler</th><th>Regole</th></tr></thead>
+      <tbody>
+        <tr><td><code>POST /matches/{matchId}/review</code></td><td><code>matches/create_review.py</code></td><td>Membro del match; <code>status=completed</code> (409); entro 48h da <code>completedAt</code> (410); una per reviewer (409 al duplicato via <code>attribute_not_exists</code>)</td></tr>
+        <tr><td><code>GET /users/{userId}/rating</code></td><td><code>users/get_user_rating.py</code></td><td>Media pubblica <code>{average, count}</code></td></tr>
+      </tbody>
+    </table></div>
+    <p>Il rating è incluso in <code class="ic">get_user_public</code> quando il match è unlocked (schermata Connection Unlocked).</p>
+
+    <h3>#12 — Secondo aeroporto reale: FCO</h3>
+    <p>Onboardato <strong>Roma Fiumicino</strong> come secondo aeroporto attivo, aggiungendo una sola entry in <code class="ic">airports.py</code> — nessuna modifica al codice di matching/handler. Terminal T1/T3, 5 zone Roma, <code class="ic">direction_labels=(TO_ROME, FROM_ROME)</code>, <code class="ic">base_fare=11000</code>.</p>
+    <div class="callout info">
+      <div class="callout-title">ⓘ Isolamento cross-airport verificato</div>
+      <p>Le query del pool usano <code class="ic">GSI5</code> con pk <code class="ic">airportCode#status</code>: ogni aeroporto ha il suo pool, mai una query cross-airport. Test (<code class="ic">tests/integration/test_multi_airport.py</code>): un trip MXP e un trip FCO con destinazione e orario <em>identici</em> non si matchano mai; due trip MXP si abbinano mentre un FCO resta idle.</p>
+    </div>
+
+    <h3>#13 — Verifica costi sotto carico</h3>
+    <p>Target <strong>&lt; $50/mese a volume MVP</strong> validato con un modello parametrico esplicito (<code class="ic">scripts/cost_model.py</code>) invece di una stima a spanne. Report in <code class="ic">docs/cost-analysis-20260606.md</code>.</p>
+    <div class="callout">
+      <div class="callout-title">⌖ Esito: ~$6.47/mese → PASS (headroom ~$43.5)</div>
+      <p>Driver principale: <strong>CloudWatch ($4.04, 62%)</strong> — custom metrics + <code class="ic">PutMetricData</code> del Matchmaker. Ottimizzazione identificata: passare a <strong>EMF via Powertools</strong> (metriche nei log già pagati) per azzerare il costo. A 10× il volume il totale resta sotto target (il driver dominante è fisso, non lineare). DynamoDB ($0.41) e Lambda ($0.13) trascurabili grazie a on-demand + TTL + arm64.</p>
+    </div>
+    <div class="code-wrap">
+      <div class="code-head"><span class="code-lang">python scripts/cost_model.py · 100 trip/giorno</span><button class="copy-btn">Copia</button></div>
+<pre>CloudWatch      12 metrics, 43,560 puts                     4.04
+S3+CloudFront   profile photos (free-tier bound)            1.00
+SES email       6,000 emails                                0.60
+DynamoDB        43,200 WRU, 435,600 RRU                     0.41
+API GW REST     60,000 requests                             0.21
+Lambda          126,240 inv, 7,890 GB-s                     0.13
+API GW WS       36,000 msgs, 90,000 conn-min                0.06
+EventBridge     18,000 events                               0.02
+SNS push        6,000 pushes (1M free)                      0.00
+TOTAL                                                       6.47</pre>
+    </div>
+  </section>
+
   <!-- ══════════════ 6. API REFERENCE ══════════════ -->
   <section id="api">
     <h2><span class="sec-num">06</span> API Reference</h2>
@@ -1061,6 +1118,25 @@ partially_unlocked → unlock_expired / dissolved / expired</pre>
     <div class="endpoint">
       <div class="ep-head"><span class="method GET">GET</span><span class="ep-path">/matches/:matchId/chat</span><span class="ep-desc">Storico chat (paginato)</span><span class="ep-auth">JWT</span><span class="caret">&#9656;</span></div>
       <div class="ep-body"><div class="notes">I messaggi hanno TTL 48h. Disponibile solo dopo <code>unlocked</code>.</div></div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-head"><span class="method POST">POST</span><span class="ep-path">/matches/:matchId/review</span><span class="ep-desc">Recensione partner (P2 #11)</span><span class="ep-auth">JWT</span><span class="caret">&#9656;</span></div>
+      <div class="ep-body">
+        <div class="block-label">Request &middot; Response 201</div>
+<pre>{ <span class="key">"rating"</span>: <span class="num">5</span>, <span class="key">"comment"</span>: <span class="str">"Puntuale e simpatico"</span> }
+&rarr; { <span class="key">"matchId"</span>: <span class="str">"match_xyz"</span>, <span class="key">"reviewedUserId"</span>: <span class="str">"user_456"</span>, <span class="key">"rating"</span>: <span class="num">5</span> }</pre>
+        <div class="notes"><b>Note:</b> solo membri del match. Match deve essere <code>completed</code> (409 altrimenti) ed entro 48h da <code>completedAt</code> (410 oltre). Una review per reviewer per match — duplicato &rarr; 409. <code>rating</code> 1–5, <code>comment</code> opzionale (max 500).</div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="ep-head"><span class="method GET">GET</span><span class="ep-path">/users/:userId/rating</span><span class="ep-desc">Rating medio pubblico (P2 #11)</span><span class="ep-auth">JWT</span><span class="caret">&#9656;</span></div>
+      <div class="ep-body">
+        <div class="block-label">Response 200</div>
+<pre>{ <span class="key">"userId"</span>: <span class="str">"user_456"</span>, <span class="key">"average"</span>: <span class="num">4.5</span>, <span class="key">"count"</span>: <span class="num">12</span> }</pre>
+        <div class="notes">Media calcolata da <code>ratingSum</code>/<code>ratingCount</code> sul profilo. <code>average</code> è <code>null</code> con zero recensioni.</div>
+      </div>
     </div>
 
     <div class="endpoint">
@@ -1240,8 +1316,12 @@ partially_unlocked → unlock_expired / dissolved / expired</pre>
           <td><strong>Hardening P0 (02/06/2026)</strong>: State machine esplicita Trip/Match (<code>src/lib/state_machine.py</code>), fix doppio-capture Stripe (ordine secondo→primo), webhook Stripe con dedup DynamoDB, Flight Tracker cascade failover (primary→fallback→degraded) con due circuit breaker indipendenti, fix race condition Matchmaker (<code>create_tentative_match</code> con <code>#status=scheduled</code>), 36 nuovi test (unit + integration).</td>
         </tr>
         <tr>
-          <td><span class="mono">v4 P1</span> <span class="badge b-new">corrente</span></td>
+          <td><span class="mono">v4 P1</span></td>
           <td><strong>Go-live P1 (02/06/2026)</strong>: Chat interna completa (WS relay + REST history + system messages), notifiche multi-canale con dedup WS→Push→Email + dead token cleanup, business metrics (<code>Flot/Business</code> namespace: TripMatched, MatchLatencyMinutes, DeadlockResolved/TimedOut, TripExpiredNoMatch), admin ops tooling IAM-protected (void/repool/inspect/refresh-eta), 46 nuovi test. Totale: 207 test verdi.</td>
+        </tr>
+        <tr>
+          <td><span class="mono">v4 P2</span> <span class="badge b-new">corrente</span></td>
+          <td><strong>Crescita &amp; difesa P2 (06/06/2026)</strong>: reputazione anti-no-show (<code>trustScore</code>/<code>banned</code> per-aeroporto in <code>lib/trust.py</code>, filtro Matchmaker + ban in create_trip), sistema di rating a stelle (entity Review, <code>POST /matches/{id}/review</code>, <code>GET /users/{id}/rating</code>, aggregati su profilo), secondo aeroporto reale <strong>FCO</strong> con isolamento cross-airport verificato, verifica costi sotto carico (<code>scripts/cost_model.py</code> → ~$6.47/mese, target &lt;$50 PASS). Roadmap P0+P1+P2 chiusa.</td>
         </tr>
       </tbody>
     </table></div>

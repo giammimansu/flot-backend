@@ -18,6 +18,7 @@ from lib.eventbridge import put_event
 from lib.flight_tracker import FlightTrackerError, fetch_flight_eta
 from lib.http import AppError, app_handler, created
 from lib.matching import get_time_bucket
+from lib.trust import is_banned
 from lib.validation import CreateTripRequest, TripMode
 from lib.zones import coords_to_zone, is_valid_direction, is_valid_terminal, is_valid_zone
 
@@ -54,6 +55,10 @@ def handler(event: dict, context) -> dict:
 
     # Load user (for matching profile bonuses)
     user_item = dynamo.get_item(f"USER#{user_id}", "PROFILE") or {}
+
+    # P2 #10 — banned users cannot create trips.
+    if is_banned(user_item):
+        raise AppError(403, "Account sospeso per violazioni ripetute. Contatta il supporto.")
 
     trip_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)

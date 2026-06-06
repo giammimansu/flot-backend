@@ -33,7 +33,16 @@
       "PowerShell(sam deploy *)",
       "Bash(TABLE_NAME=Flot-dev AWS_DEFAULT_REGION=eu-south-1 python *)",
       "Bash(python3 -c ' *)",
-      "Bash(aws s3api get-bucket-notification-configuration *)"
+      "Bash(aws s3api get-bucket-notification-configuration *)",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/unit/test_trust.py tests/unit/test_reviews.py tests/integration/test_multi_airport.py -q)",
+      "Bash(.venv/Scripts/python.exe -m pytest -q)",
+      "Bash(.venv/Scripts/python.exe -m pytest -q --ignore=tests/unit/test_unlock_flow.py --ignore=tests/unit/test_push_notification.py)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/integration/test_v4_e2e.py::test_v4_shadow_pool_e2e tests/unit/test_airports.py::TestGetAirport::test_mxp_has_adjacent_zones tests/unit/test_matchmaker_v4.py::test_lock_window_skips_if_trip_not_tentative \"tests/unit/test_notifications.py::test_notify_match_found\" --tb=short -q)",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/unit/test_dynamo.py::test_create_tentative_match_rounds_floats tests/unit/test_matchmaker.py::test_process_airport_with_matches tests/unit/test_notifications.py::test_send_push_real \"tests/unit/test_photo_processing.py::TestGetPhotoUploadUrl::test_url_contains_webp_content_type\" --tb=line -q)",
+      "Bash(.venv/Scripts/python.exe scripts/cost_model.py)",
+      "Read(//c/Users/gmansueti/Desktop/Ps/flot-frontend/**)",
+      "Bash(dir /s /b)"
     ]
   }
 }

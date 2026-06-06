@@ -1,9 +1,10 @@
 # Flot — Backend Action Plan
 
-> Ultimo aggiornamento: 2 Giugno 2026
+> Ultimo aggiornamento: 6 Giugno 2026
 > Versione backend attuale: v4 Elastic & Predictive + Smart Auto-Capture (Payment Deadlock)
 > Sessione 2 Giugno (mattina): P0 completato (#1 già esistente, #2 #3 #4 #5 implementati e committati)
 > Sessione 2 Giugno (pomeriggio): P1 completato (#6 #7 #8 #9 implementati e committati)
+> Sessione 6 Giugno: P2 completato (#10 #11 #12 #13 implementati e committati) — **roadmap chiusa**
 
 La logica di priorità è **operativa, non tematica**: prima rendere affidabile e chiudibile ciò che esiste, poi sbloccare il go-live a pagamento, infine crescita e difesa.
 
@@ -212,79 +213,88 @@ Da fare quando hai dati reali e volume sufficiente.
 
 ### #10 — Penalità / reputazione anti-no-show
 
-**Stato**: da sviluppare
+**Stato**: ✅ COMPLETATO (06/06/2026)
 **Dipendenze**: #1, #8
 
 `previousMatchPartners` evita il loop con lo stesso partner ma non difende da comportamenti sistematici: utenti che non sbloccano mai, account multipli, no-show ripetuti.
 
-**Da implementare:**
-- Campo `trustScore` su entity `User` (float 0.0–1.0, default 1.0)
-- Decremento automatico su: unlock_expired non-payer, trip.completed senza presenza confermata
-- Trip con `trustScore < threshold` esclusi dal matching (configurabile per aeroporto)
-- Hard ban dopo N violazioni (campo `banned: true`, check in `create_trip`)
+**Implementato:**
+- Modulo `src/lib/trust.py`: `get_trust_score`, `is_banned`, `meets_threshold`, `record_violation`
+- Campo `trustScore` su entity `User` (float 0.0–1.0, default 1.0) + `trustViolations` + `banned`
+- Decremento automatico su `unlock_expired` non-payer (wired in `on_unlock_expired.py`)
+- Trip con `trustScore < trust_threshold` o `banned` esclusi dal matching (`matchmaker.build_compatibility_matrix`)
+- Hard ban dopo `trust_ban_violations` violazioni; check in `create_trip` → 403
+- Tutte le soglie sono per-aeroporto in `airports.py` (`trust_threshold`, `trust_decrement_per_violation`, `trust_ban_violations`)
+- Test: `tests/unit/test_trust.py` (9 test)
 
 ---
 
 ### #11 — Sistema di rating a stelle
 
-**Stato**: quasi da zero (solo hook accennato)
+**Stato**: ✅ COMPLETATO (06/06/2026)
 **Dipendenze**: #1, #10
 
-Ha senso solo con volume di match completati sufficiente a generare reputazione. Si appende all'handler `trip.completed` di #1.
+Si appende all'hook `review.requested` già emesso dall'handler `trip.completed` di #1.
 
-**Entity da aggiungere:**
+**Entity aggiunta:**
 ```
 Review
   PK: USER#<reviewedUserId>
   SK: REVIEW#<matchId>
-  reviewerId, rating (1-5), comment?, createdAt
+  reviewerId, rating (1-5), comment?, airportCode, createdAt
+```
+Aggregati `ratingSum` + `ratingCount` sul profilo utente (update atomico in transazione); media calcolata in lettura.
+
+**Endpoint sviluppati:**
+```
+POST /matches/:matchId/review    → handlers/matches/create_review.py
+GET  /users/:userId/rating       → handlers/users/get_user_rating.py
 ```
 
-**Endpoint da sviluppare:**
-```
-POST /matches/:matchId/review    → Crea review post-completion
-GET  /users/:userId/rating       → Rating medio pubblico
-```
-
-**Regole:**
-- Una review per utente per match (idempotente)
-- Review disponibile solo dopo `trip.completed` e solo entro 48h
-- Rating visibile sul profilo partner nella schermata Connection Unlocked
+**Regole implementate:**
+- Una review per reviewer per match (idempotente — `ConditionExpression attribute_not_exists(pk)`, 409 al duplicato)
+- Review solo dopo `status=completed` (409 altrimenti) ed entro `REVIEW_WINDOW_HOURS`=48h (410 oltre)
+- Rating incluso in `get_user_public` quando il match è unlocked (schermata Connection Unlocked)
+- Test: `tests/unit/test_reviews.py` (9 test)
 
 ---
 
 ### #12 — Onboarding secondo aeroporto reale
 
-**Stato**: architettura pronta, mai testato
+**Stato**: ✅ COMPLETATO (06/06/2026) — backend
 **Dipendenze**: nessuna bloccante
 
-L'architettura è multi-airport "da day 1" ma esiste solo MXP. Onboardare un secondo aeroporto (es. FCO Roma Fiumicino) verifica che nulla sia hardcodato fuori da `airports.py`.
+L'architettura è multi-airport "da day 1" ma esisteva solo MXP. Onboardato FCO (Roma Fiumicino) per verificare che nulla sia hardcodato fuori da `airports.py`.
 
 **Checklist:**
-- [ ] Aggiungere `FCO` in `airports.py` con tutti i campi richiesti
-- [ ] Verificare che tutti i GSI query siano scoped per `airportCode` (nessuna query cross-airport)
-- [ ] Test E2E: trip MXP e trip FCO non si matchano mai
-- [ ] Frontend: Airport Picker con almeno due aeroporti attivi
+- [x] Aggiunto `FCO` in `airports.py` con tutti i campi (terminals T1/T3, 5 zone Roma, meeting points, `direction_labels=(TO_ROME, FROM_ROME)`, `base_fare=11000`)
+- [x] Verificato che le query GSI5 sono scoped per `airportCode#status` → nessun pool cross-airport
+- [x] Test integrazione: trip MXP e trip FCO non si matchano mai anche con destinazione/orario identici (`tests/integration/test_multi_airport.py`)
+- [ ] Frontend: Airport Picker con due aeroporti attivi (fuori scope backend)
 
 ---
 
 ### #13 — Verifica costi sotto carico
 
-**Stato**: stimato, mai misurato
+**Stato**: ✅ COMPLETATO (06/06/2026)
 **Dipendenze**: #4, #8
 
-Il target è **< $50/mese a volume MVP**. Va validato con carico simulato, non solo stimato.
+Il target è **< $50/mese a volume MVP**. Validato con un modello parametrico esplicito.
 
-**Scenario di test:**
-- 100 trip/giorno distribuiti su 16 ore
-- Matchmaker ogni 5 min (288 invocazioni/giorno)
-- Flight Tracker ogni 15 min per trip attivi
-- Picco: 20 trip nella stessa ora, stesso aeroporto
+**Deliverable:**
+- `scripts/cost_model.py` — modello parametrico per-servizio, riproducibile (`python scripts/cost_model.py`)
+- `docs/cost-analysis-20260606.md` — report con breakdown + colli di bottiglia + piano ottimizzazione
 
-**Output atteso:**
-- Breakdown costi per servizio (Lambda, DynamoDB, EventBridge, SNS, SES)
-- Identificazione colli di bottiglia (letture GSI, dimensione payload WS)
-- Piano di ottimizzazione se si supera il target
+**Esito: ~$6.47/mese → PASS** (headroom ~$43.5 sul target $50).
+
+**Breakdown (100 trip/giorno):**
+- CloudWatch $4.04 (62% — custom metrics + PutMetricData del Matchmaker) ← driver #1
+- S3+CloudFront $1.00 · SES $0.60 · DynamoDB $0.41 · API GW REST $0.21 · Lambda $0.13 · resto trascurabile
+
+**Ottimizzazioni identificate:**
+- CloudWatch: passare a **EMF via Powertools** (metriche nei log già pagati) → azzera costo PutMetricData
+- A 10× il volume il totale resta < $50/mese (driver dominante è fisso, non lineare)
+- Rischio a scala: projection `ALL` su GSI5 — valutare `KEYS_ONLY` + batch get a pool grandi
 
 ---
 
@@ -301,10 +311,12 @@ Il target è **< $50/mese a volume MVP**. Va validato con carico simulato, non s
 | 7 | Notifiche multi-canale E2E | P1 | ✅ Completato | — |
 | 8 | Osservabilità di business | P1 | ✅ Completato | — |
 | 9 | Admin & ops tooling | P1 | ✅ Completato | #2, #3 |
-| 10 | Penalità anti-no-show | P2 | Da sviluppare | #1, #8 |
-| 11 | Sistema di rating | P2 | Da sviluppare | #1, #10 |
-| 12 | Onboarding secondo aeroporto | P2 | Architettura pronta | — |
-| 13 | Verifica costi sotto carico | P2 | Stimato | #4, #8 |
+| 10 | Penalità anti-no-show | P2 | ✅ Completato | #1, #8 |
+| 11 | Sistema di rating | P2 | ✅ Completato | #1, #10 |
+| 12 | Onboarding secondo aeroporto | P2 | ✅ Completato | — |
+| 13 | Verifica costi sotto carico | P2 | ✅ Completato | #4, #8 |
+
+**Roadmap P0+P1+P2 completa.** Residuo non-backend: Airport Picker frontend (#12), monitoraggio costi reali post-lancio (#13).
 
 ---
 

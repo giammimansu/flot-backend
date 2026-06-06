@@ -68,6 +68,7 @@ def _public_profile(item: dict, unlocked: bool) -> dict:
     last_name = parts[-1] if len(parts) > 1 else ""
 
     if unlocked:
+        from handlers.users.get_user_rating import compute_rating
         return {
             "userId": item.get("userId"),
             "firstName": first_name,
@@ -77,6 +78,7 @@ def _public_profile(item: dict, unlocked: bool) -> dict:
             "age": item.get("age"),
             "city": item.get("city"),
             "languages": item.get("languages"),
+            "rating": compute_rating(item),
         }
     return {
         "userId": item.get("userId"),
