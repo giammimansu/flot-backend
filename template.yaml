@@ -912,7 +912,7 @@ Resources:
       Description: POST /admin/matches/{matchId}/void — force void PI + dissolve
       Environment:
         Variables:
-          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_SECRET_KEY: !If [IsDev, "", !Sub "{{resolve:ssm:/flot/${Stage}/stripe-secret-key}}"]
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref FlotTable
