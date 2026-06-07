@@ -60,12 +60,119 @@ def _make_trip(trip_id: str, user_id: str, status: str, *, table_resource) -> No
 
 
 # ---------------------------------------------------------------------------
-# Scenario 1: Double capture — second PI fails → first must not be charged
+# Scenario 1: Webhook-driven capture (both holds authorized → capture both)
 # ---------------------------------------------------------------------------
 
-class TestDoubleCaptureFailure:
-    def test_second_pi_capture_fails_no_charge_to_first(self, dynamodb_table, lambda_context):
-        """If second PI capture fails, cancel it and never touch first PI."""
+def _seed_both_holds(table_resource, *, second: bool = True) -> None:
+    """Match with first (and optionally second) authorized hold pending capture."""
+    item = {
+        "pk": "MATCH#m1", "sk": "META", "matchId": "m1",
+        "status": "partially_unlocked",
+        "userId1": "u1", "userId2": "u2", "tripId1": "t1", "tripId2": "t2",
+        "airportCode": "MXP",
+        "unlockedBy": ["u1", "u2"] if second else ["u1"],
+        "firstUnlockPaymentIntentId": "pi_first",
+        "unlockDeadline": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+    }
+    if second:
+        item["secondUnlockPaymentIntentId"] = "pi_second"
+    table_resource.put_item(Item=item)
+
+
+def _capturable_event(event_id: str = "evt_cap", pi: str = "pi_second", match_id: str = "m1") -> dict:
+    return {
+        "httpMethod": "POST",
+        "headers": {},
+        "body": json.dumps({
+            "id": event_id,
+            "type": "payment_intent.amount_capturable_updated",
+            "data": {"object": {"id": pi, "metadata": {"matchId": match_id}}},
+        }),
+        "requestContext": {},
+    }
+
+
+class TestWebhookCapture:
+    def test_both_authorized_captures_in_order_and_unlocks(self, dynamodb_table, lambda_context):
+        _seed_both_holds(dynamodb_table)
+        from handlers.webhooks import stripe_webhook
+
+        with patch.object(stripe_webhook, "stripe") as ms, \
+             patch.object(stripe_webhook, "put_event") as mev, \
+             patch.object(stripe_webhook, "cancel_unlock_timeout_schedule") as mcancel, \
+             patch.object(stripe_webhook, "business_metrics"), \
+             patch.dict("os.environ", {"STRIPE_WEBHOOK_SECRET": ""}):
+
+            ms.error.StripeError = Exception
+            authorized = MagicMock(); authorized.status = "requires_capture"
+            ms.PaymentIntent.retrieve.return_value = authorized
+
+            resp = stripe_webhook.handler(_capturable_event("evt_cap_ok"), lambda_context)
+
+            assert resp["statusCode"] == 200
+            # Capture order: second PI first, then first PI (safety ordering).
+            captured = [c.args[0] for c in ms.PaymentIntent.capture.call_args_list]
+            assert captured == ["pi_second", "pi_first"]
+            mev.assert_called_once()
+            mcancel.assert_called_once_with("m1")
+
+        m = dynamodb_table.get_item(Key={"pk": "MATCH#m1", "sk": "META"})["Item"]
+        assert m["status"] == "unlocked"
+        assert "captureInProgress" not in m
+
+    def test_second_capture_fails_no_charge_stays_partial(self, dynamodb_table, lambda_context):
+        _seed_both_holds(dynamodb_table)
+        from handlers.webhooks import stripe_webhook
+
+        with patch.object(stripe_webhook, "stripe") as ms, \
+             patch.object(stripe_webhook, "put_event"), \
+             patch.object(stripe_webhook, "business_metrics"), \
+             patch.dict("os.environ", {"STRIPE_WEBHOOK_SECRET": ""}):
+
+            ms.error.StripeError = Exception
+            authorized = MagicMock(); authorized.status = "requires_capture"
+            ms.PaymentIntent.retrieve.return_value = authorized
+            ms.PaymentIntent.capture.side_effect = Exception("capture_failed")
+
+            resp = stripe_webhook.handler(_capturable_event("evt_cap_fail"), lambda_context)
+
+            assert resp["statusCode"] == 200
+            # Only second PI attempted; first never captured.
+            captured = [c.args[0] for c in ms.PaymentIntent.capture.call_args_list]
+            assert captured == ["pi_second"]
+            ms.PaymentIntent.cancel.assert_called_once_with("pi_second")
+
+        m = dynamodb_table.get_item(Key={"pk": "MATCH#m1", "sk": "META"})["Item"]
+        assert m["status"] == "partially_unlocked"   # no charge, hold reverted to pending
+        assert "captureInProgress" not in m          # claim released for retry
+
+    def test_waits_when_only_one_hold_authorized(self, dynamodb_table, lambda_context):
+        _seed_both_holds(dynamodb_table, second=False)  # no second PI yet
+        from handlers.webhooks import stripe_webhook
+
+        with patch.object(stripe_webhook, "stripe") as ms, \
+             patch.object(stripe_webhook, "put_event") as mev, \
+             patch.dict("os.environ", {"STRIPE_WEBHOOK_SECRET": ""}):
+
+            ms.error.StripeError = Exception
+            resp = stripe_webhook.handler(_capturable_event("evt_cap_wait", pi="pi_first"), lambda_context)
+
+            assert resp["statusCode"] == 200
+            ms.PaymentIntent.capture.assert_not_called()
+            mev.assert_not_called()
+
+        m = dynamodb_table.get_item(Key={"pk": "MATCH#m1", "sk": "META"})["Item"]
+        assert m["status"] == "partially_unlocked"
+
+
+# ---------------------------------------------------------------------------
+# Scenario 1b: second unlock no longer captures synchronously (returns hold secret)
+# ---------------------------------------------------------------------------
+
+class TestSecondUnlockDefersCapture:
+    def test_second_unlock_returns_client_secret_no_capture(self, dynamodb_table, lambda_context):
         _make_match("m1", "partially_unlocked", table_resource=dynamodb_table)
         dynamodb_table.put_item(Item={"pk": "USER#u2", "sk": "PROFILE", "name": "User Two"})
         _make_trip("t1", "u1", "matched", table_resource=dynamodb_table)
@@ -73,40 +180,31 @@ class TestDoubleCaptureFailure:
 
         from handlers.matches.unlock_match import handler
 
-        event = build_api_event(
-            method="POST",
-            body={"matchId": "m1"},
-            user_id="u2",
-            headers={"origin": "https://app.flot.it"},
-        )
+        event = build_api_event(method="POST", body={"matchId": "m1"}, user_id="u2")
 
         with patch("handlers.matches.unlock_match.stripe") as mock_stripe, \
-             patch("handlers.matches.unlock_match.cancel_unlock_timeout_schedule"), \
              patch("handlers.matches.unlock_match.put_event"), \
              patch("handlers.matches.unlock_match.get_user", return_value={"name": "User Two"}), \
              patch.dict("os.environ", {"STRIPE_SECRET_KEY": "sk_test_fake", "BETA_MODE": ""}):
 
             mock_intent = MagicMock()
-            mock_intent.id = "pi_second_456"
-            mock_intent.client_secret = "pi_second_456_secret"
+            mock_intent.id = "pi_second"
+            mock_intent.client_secret = "pi_second_secret"
             mock_stripe.PaymentIntent.create.return_value = mock_intent
             mock_stripe.error.StripeError = Exception
-            # Second PI capture raises immediately
-            mock_stripe.PaymentIntent.capture.side_effect = Exception("capture_failed")
 
             response = handler(event, lambda_context)
             body = json.loads(response["body"])
 
-            assert response["statusCode"] == 500
-            assert "No charges" in body.get("error", "")
+        assert response["statusCode"] == 200
+        assert body["matchStatus"] == "partially_unlocked"   # capture deferred to webhook
+        assert body["paymentIntentClientSecret"] == "pi_second_secret"
+        mock_stripe.PaymentIntent.capture.assert_not_called()
 
-            # Only second PI was attempted — first was never captured
-            capture_calls = mock_stripe.PaymentIntent.capture.call_args_list
-            assert len(capture_calls) == 1
-            assert capture_calls[0] == call("pi_second_456")
-
-            # Cancel called on second PI
-            mock_stripe.PaymentIntent.cancel.assert_called_once_with("pi_second_456")
+        m = dynamodb_table.get_item(Key={"pk": "MATCH#m1", "sk": "META"})["Item"]
+        assert m["status"] == "partially_unlocked"
+        assert m["secondUnlockPaymentIntentId"] == "pi_second"
+        assert set(m["unlockedBy"]) == {"u1", "u2"}
 
 
 # ---------------------------------------------------------------------------

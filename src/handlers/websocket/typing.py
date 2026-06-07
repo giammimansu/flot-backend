@@ -37,7 +37,7 @@ def handler(event: dict, context) -> dict:
 
     partner_id = match["userId2"] if match["userId1"] == sender_id else match["userId1"]
     ws.send_to_user(partner_id, {
-        "event": "typing",
+        "type": "typing",
         "data": {"matchId": match_id, "userId": sender_id},
     })
     return {"statusCode": 200, "body": "ok"}

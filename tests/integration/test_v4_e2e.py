@@ -30,7 +30,8 @@ def test_v4_shadow_pool_e2e(dynamodb_table, lambda_context):
 
     # 1. Create Trip A
     with patch("handlers.trips.create_trip.datetime") as mock_dt, \
-         patch("handlers.trips.create_trip.fetch_flight_eta", return_value=flight_eta):
+         patch("handlers.trips.create_trip.fetch_flight_eta", return_value=flight_eta), \
+         patch("handlers.trips.create_trip.put_event"):
         mock_dt.now.return_value = now_base
         mock_dt.fromisoformat = datetime.fromisoformat
 
@@ -39,13 +40,14 @@ def test_v4_shadow_pool_e2e(dynamodb_table, lambda_context):
             "body": json.dumps({
                 "airportCode": "MXP",
                 "terminal": "T1",
-                "direction": "FROM_AIRPORT",
+                "direction": "TO_MILAN",
                 "destination": "Duomo, Milano",
                 "destLat": 45.464,
                 "destLng": 9.190,
                 "destPlaceId": "place_1",
                 "flightNumber": "AZ123",
                 "flightDate": flight_date_str,
+                "mode": "scheduled",
                 "paxCount": 1,
                 "luggage": 0,
             }),
@@ -58,7 +60,8 @@ def test_v4_shadow_pool_e2e(dynamodb_table, lambda_context):
     
     # 2. Create Trip B
     with patch("handlers.trips.create_trip.datetime") as mock_dt, \
-         patch("handlers.trips.create_trip.fetch_flight_eta", return_value=flight_eta):
+         patch("handlers.trips.create_trip.fetch_flight_eta", return_value=flight_eta), \
+         patch("handlers.trips.create_trip.put_event"):
         mock_dt.now.return_value = now_base
         mock_dt.fromisoformat = datetime.fromisoformat
 
@@ -67,13 +70,14 @@ def test_v4_shadow_pool_e2e(dynamodb_table, lambda_context):
             "body": json.dumps({
                 "airportCode": "MXP",
                 "terminal": "T1",
-                "direction": "FROM_AIRPORT",
+                "direction": "TO_MILAN",
                 "destination": "Stazione Centrale, Milano",
                 "destLat": 45.484,
                 "destLng": 9.203,
                 "destPlaceId": "place_2",
                 "flightNumber": "AZ124",
                 "flightDate": flight_date_str,
+                "mode": "scheduled",
                 "paxCount": 1,
                 "luggage": 0,
             }),
@@ -84,10 +88,11 @@ def test_v4_shadow_pool_e2e(dynamodb_table, lambda_context):
     trip_b = json.loads(res_b["body"])
 
     # 3. Matchmaker run 1: creates TentativeMatch
-    with patch("handlers.matching.matchmaker.datetime") as mock_dt:
+    with patch("handlers.matching.matchmaker.datetime") as mock_dt, \
+         patch("handlers.matching.matchmaker.put_event"):
         mock_dt.now.return_value = now_base
         mock_dt.fromisoformat = datetime.fromisoformat
-        
+
         matchmaker_handler({}, lambda_context)
     
     # Verify TentativeMatch created

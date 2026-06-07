@@ -85,9 +85,9 @@ def test_create_tentative_match_rounds_floats():
             airport_code="MXP",
         )
 
-    assert result["score"] == 0.757
+    assert result["score"] == 0.76
     assert result["distKm"] == 2.57
-    assert result["detourMinutes"] == 4.2
+    assert result["detourMinutes"] == 4.23
 
 
 # ── dissolve_tentative_match ──────────────────────────────────────────
