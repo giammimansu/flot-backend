@@ -1,0 +1,52 @@
+name: Deploy backend (dev)
+
+# Push su main -> sam build + sam deploy nello stack flot-backend-dev.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:        # consente run manuale dalla tab Actions
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false  # non interrompere un deploy a metà
+
+permissions:
+  id-token: write   # per l'autenticazione OIDC (opzionale, vedi sotto)
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      # arm64: le Lambda sono arm64 e il layer ha dipendenze binarie (Pillow,
+      # pydantic-core...). QEMU abilita l'emulazione arm per `sam build --use-container`.
+      - uses: docker/setup-qemu-action@v3
+
+      # Credenziali AWS via access key (secrets del repo).
+      # Alternativa OIDC (consigliata): sostituire con
+      #   role-to-assume: arn:aws:iam::183695702800:role/<github-oidc-role>
+      # e rimuovere le due righe access key.
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-south-1
+
+      - name: SAM build
+        run: sam build --use-container
+
+      - name: SAM deploy (dev)
+        run: >
+          sam deploy --config-env dev
+          --no-confirm-changeset
+          --no-fail-on-empty-changeset
