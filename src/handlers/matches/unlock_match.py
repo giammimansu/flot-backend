@@ -87,6 +87,15 @@ def handler(event, context):
 
         logger.info("beta_unlock", matchId=match["matchId"], userId=user_id, newStatus=new_status)
 
+        if new_status == "partially_unlocked":
+            # No scheduler/deadline in beta — just nudge the partner in chat.
+            try:
+                from handlers.chat.system_message import post_partner_unlocked
+                unlocking_user = get_user(user_id)
+                post_partner_unlocked(match["matchId"], unlocking_user.get("name", ""))
+            except Exception:
+                logger.warning("beta_partial_message_failed", matchId=match["matchId"])
+
         if new_status == "unlocked":
             try:
                 put_event("payment.completed", {

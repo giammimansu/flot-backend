@@ -792,11 +792,16 @@ Resources:
           STRIPE_SECRET_KEY: !If [IsDev, "", !Sub "{{resolve:ssm:/flot/${Stage}/stripe-secret-key}}"]
           # MVP: in dev l'unlock è gratuito → percorso beta (niente Stripe).
           BETA_MODE: !If [IsDev, "true", "false"]
+          WS_ENDPOINT: !Sub "https://${FlotWsApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref FlotTable
         - EventBridgePutEventsPolicy:
             EventBusName: !Ref FlotEventBus
+        - Statement:
+            Effect: Allow
+            Action: execute-api:ManageConnections
+            Resource: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${FlotWsApi}/${Stage}/*"
         - Statement:
             Effect: Allow
             Action: scheduler:CreateSchedule
@@ -1345,6 +1350,34 @@ Resources:
                 - flot-backend
               detail-type:
                 - match.partially_unlocked
+
+  OnUnlockCompletedFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-on-unlock-completed-${Stage}
+      Handler: handlers.events.on_unlock_completed.handler
+      CodeUri: src/
+      Description: EventBridge — payment.completed — full unlock chat reveal
+      Environment:
+        Variables:
+          WS_ENDPOINT: !Sub "https://${FlotWsApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+        - Statement:
+            Effect: Allow
+            Action: execute-api:ManageConnections
+            Resource: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${FlotWsApi}/${Stage}/*"
+      Events:
+        EventBridgeRule:
+          Type: CloudWatchEvent
+          Properties:
+            EventBusName: !Ref FlotEventBus
+            Pattern:
+              source:
+                - flot-backend
+              detail-type:
+                - payment.completed
 
   OnMatchDissolvedFunction:
     Type: AWS::Serverless::Function

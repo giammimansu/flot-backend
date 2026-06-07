@@ -7,6 +7,7 @@ Public API:
     post_system_message(match_id, text)
     post_match_confirmed(match_id)
     post_partner_unlocked(match_id, partner_name)
+    post_match_unlocked(match_id)
     post_chat_expiring(match_id, hours_left)
 """
 from __future__ import annotations
@@ -58,6 +59,14 @@ def post_partner_unlocked(match_id: str, partner_name: str) -> dict:
     return post_system_message(
         match_id,
         f"🔓 {first_name} ha sbloccato la connessione. Sblocca anche tu per aprire la chat!",
+    )
+
+
+def post_match_unlocked(match_id: str) -> dict:
+    """'Connessione sbloccata da entrambi — la chat è aperta.'"""
+    return post_system_message(
+        match_id,
+        "🎉 Connessione sbloccata da entrambi! La chat è aperta — scambiatevi i dettagli del viaggio.",
     )
 
 
