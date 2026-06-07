@@ -19,7 +19,7 @@ import os
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta
 
 import boto3
 from aws_lambda_powertools import Logger, Tracer
@@ -100,15 +100,15 @@ def handler(event: dict, context: LambdaContext) -> dict:
 
 def _fetch_slot(direction: str, slot: str, date: str, airport: str, api_key: str) -> list[dict]:
     try:
-        slot_dt = datetime.fromisoformat(f"{date}T{slot}:00").replace(tzinfo=timezone.utc)
+        start = datetime.fromisoformat(f"{date}T{slot}:00")
     except ValueError:
         return []
-    offset_minutes = round((slot_dt - datetime.now(timezone.utc)).total_seconds() / 60) - 60
+    end = start + timedelta(minutes=DURATION_MINUTES)
+    from_local = start.strftime("%Y-%m-%dT%H:%M")
+    to_local = end.strftime("%Y-%m-%dT%H:%M")
     dir_param = "Arrival" if direction == "arrivals" else "Departure"
 
     qs = urllib.parse.urlencode({
-        "offsetMinutes": offset_minutes,
-        "durationMinutes": DURATION_MINUTES,
         "withLeg": "true",
         "direction": dir_param,
         "withCancelled": "true",
@@ -117,7 +117,8 @@ def _fetch_slot(direction: str, slot: str, date: str, airport: str, api_key: str
         "withPrivate": "false",
         "withLocation": "false",
     })
-    url = f"https://{RAPIDAPI_HOST}/flights/airports/iata/{urllib.parse.quote(airport)}?{qs}"
+    path = f"/flights/airports/iata/{urllib.parse.quote(airport)}/{from_local}/{to_local}"
+    url = f"https://{RAPIDAPI_HOST}{path}?{qs}"
 
     req = urllib.request.Request(
         url,
