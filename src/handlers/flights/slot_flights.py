@@ -33,6 +33,10 @@ tracer = Tracer()
 RAPIDAPI_HOST = "aerodatabox.p.rapidapi.com"
 FETCH_TIMEOUT_SECONDS = 4.0
 DURATION_MINUTES = 120
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
 
 _ssm_client = None
 _api_key_cache: str | None = None
@@ -160,7 +164,12 @@ def _fetch_raw(direction: str, slot: str, date: str, airport: str, api_key: str)
 
     req = urllib.request.Request(
         url,
-        headers={"X-RapidAPI-Key": api_key, "X-RapidAPI-Host": RAPIDAPI_HOST},
+        headers={
+            "X-RapidAPI-Key": api_key,
+            "X-RapidAPI-Host": RAPIDAPI_HOST,
+            "User-Agent": USER_AGENT,
+            "Accept": "application/json",
+        },
         method="GET",
     )
     with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT_SECONDS) as resp:

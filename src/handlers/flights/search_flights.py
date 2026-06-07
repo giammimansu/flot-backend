@@ -207,7 +207,15 @@ def _fetch_arrivals_for_date(
         )
         req = urllib.request.Request(
             url,
-            headers={"X-RapidAPI-Key": api_key, "X-RapidAPI-Host": RAPIDAPI_HOST},
+            headers={
+                "X-RapidAPI-Key": api_key,
+                "X-RapidAPI-Host": RAPIDAPI_HOST,
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                ),
+                "Accept": "application/json",
+            },
             method="GET",
         )
         try:
