@@ -790,6 +790,8 @@ Resources:
       Environment:
         Variables:
           STRIPE_SECRET_KEY: !If [IsDev, "", !Sub "{{resolve:ssm:/flot/${Stage}/stripe-secret-key}}"]
+          # MVP: in dev l'unlock è gratuito → percorso beta (niente Stripe).
+          BETA_MODE: !If [IsDev, "true", "false"]
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref FlotTable
