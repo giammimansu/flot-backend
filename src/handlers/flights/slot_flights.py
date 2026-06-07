@@ -89,20 +89,58 @@ def handler(event: dict, context: LambdaContext) -> dict:
     if not api_key:
         return success(_mock_rows(direction, airport), origin)
 
+    debug = (params.get("debug") or "").strip() in ("1", "true")
     try:
-        rows = _fetch_slot(direction, slot, date, airport, api_key)
+        url, raw = _fetch_raw(direction, slot, date, airport, api_key)
+    except urllib.error.HTTPError as exc:
+        body = ""
+        try:
+            body = exc.read().decode("utf-8", "replace")[:800]
+        except Exception:
+            pass
+        logger.warning("flight_slot_http_error", airport=airport, slot=slot,
+                       status=exc.code, body=body)
+        if debug:
+            return success({"_error": "http", "status": exc.code, "body": body}, origin)
+        return success([], origin)
+    except urllib.error.URLError as exc:
+        logger.warning("flight_slot_url_error", airport=airport, slot=slot,
+                       reason=str(exc.reason))
+        if debug:
+            return success({"_error": "url", "reason": str(exc.reason)}, origin)
+        return success([], origin)
     except Exception as exc:
         logger.warning("flight_slot_failed", airport=airport, slot=slot, reason=str(exc))
+        if debug:
+            return success({"_error": "exc", "reason": str(exc)}, origin)
         return success([], origin)
 
+    flights = _extract_flights(raw, direction)
+    logger.info("flight_slot_shape", airport=airport,
+                raw_type=type(raw).__name__,
+                top_keys=list(raw.keys()) if isinstance(raw, dict) else None,
+                dir_block_type=type(raw.get(direction)).__name__ if isinstance(raw, dict) else None,
+                flights_count=len(flights),
+                first_item_keys=list(flights[0].keys()) if flights else None)
+
+    rows = _parse_rows(flights, direction, airport)
+
+    if debug:
+        return success({
+            "url": url,
+            "top_keys": list(raw.keys()) if isinstance(raw, dict) else None,
+            "dir_block_type": type(raw.get(direction)).__name__ if isinstance(raw, dict) else None,
+            "flights_count": len(flights),
+            "first_item_keys": list(flights[0].keys()) if flights else None,
+            "first_item": flights[0] if flights else None,
+            "parsed_count": len(rows),
+            "rows": rows,
+        }, origin)
     return success(rows, origin)
 
 
-def _fetch_slot(direction: str, slot: str, date: str, airport: str, api_key: str) -> list[dict]:
-    try:
-        start = datetime.fromisoformat(f"{date}T{slot}:00")
-    except ValueError:
-        return []
+def _fetch_raw(direction: str, slot: str, date: str, airport: str, api_key: str) -> tuple[str, dict]:
+    start = datetime.fromisoformat(f"{date}T{slot}:00")
     end = start + timedelta(minutes=DURATION_MINUTES)
     from_local = start.strftime("%Y-%m-%dT%H:%M")
     to_local = end.strftime("%Y-%m-%dT%H:%M")
@@ -127,24 +165,47 @@ def _fetch_slot(direction: str, slot: str, date: str, airport: str, api_key: str
     )
     with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT_SECONDS) as resp:
         raw = json.loads(resp.read())
+    return url, raw
 
-    flights = raw.get(direction, []) if isinstance(raw, dict) else []
+
+def _extract_flights(raw: dict, direction: str) -> list[dict]:
+    """Tolerate {"arrivals": [...]} and {"arrivals": {"flights": [...]}}."""
+    if not isinstance(raw, dict):
+        return []
+    block = raw.get(direction)
+    if block is None:
+        # plural/singular fallback
+        block = raw.get(direction.rstrip("s")) or raw.get("flights")
+    if isinstance(block, dict):
+        block = block.get("flights") or []
+    return block if isinstance(block, list) else []
+
+
+def _parse_rows(flights: list[dict], direction: str, airport: str) -> list[dict]:
     rows: list[dict] = []
     for f in flights:
-        arr = f.get("arrival", {}) or {}
-        dep = f.get("departure", {}) or {}
-        arr_ap = (arr.get("airport") or {})
-        dep_ap = (dep.get("airport") or {})
-        time_block = arr if direction == "arrivals" else dep
         number = f.get("number") or ""
         if not number:
             continue
-        if direction == "arrivals":
-            origin_iata, origin_name = dep_ap.get("iata", ""), dep_ap.get("name", "")
-            dest_iata, dest_name = airport, airport
+        # Airport FIDS uses a single `movement` block (the OTHER airport).
+        # Single-flight schema uses arrival/departure blocks. Support both.
+        mv = f.get("movement") or {}
+        if mv:
+            other_ap = mv.get("airport") or {}
+            time_block = mv
         else:
-            origin_iata, origin_name = airport, airport
-            dest_iata, dest_name = arr_ap.get("iata", ""), arr_ap.get("name", "")
+            arr = f.get("arrival") or {}
+            dep = f.get("departure") or {}
+            if direction == "arrivals":
+                other_ap, time_block = (dep.get("airport") or {}), arr
+            else:
+                other_ap, time_block = (arr.get("airport") or {}), dep
+        other_iata = other_ap.get("iata") or other_ap.get("icao", "")
+        other_name = other_ap.get("name", "")
+        if direction == "arrivals":
+            origin_iata, origin_name, dest_iata, dest_name = other_iata, other_name, airport, airport
+        else:
+            origin_iata, origin_name, dest_iata, dest_name = airport, airport, other_iata, other_name
         rows.append({
             "number": number,
             "originIata": origin_iata,
