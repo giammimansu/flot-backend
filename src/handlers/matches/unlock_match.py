@@ -9,9 +9,8 @@ from lib.airports import get_airport
 from lib.dynamo import get_match, get_trip, get_user, table, now_iso
 from lib.eventbridge import put_event
 from lib.http import AppError, app_handler, success
-from lib.schedulers import create_unlock_timeout_schedule, cancel_unlock_timeout_schedule
+from lib.schedulers import create_unlock_timeout_schedule
 from lib.state_machine import MatchStateMachine, InvalidTransitionError
-from lib.metrics import business_metrics
 from aws_lambda_powertools import Logger
 
 logger = Logger()
@@ -177,43 +176,19 @@ def handler(event, context):
         )
 
     elif len(unlocked_by) == 2:
-        first_pi_id = match.get("firstUnlockPaymentIntentId", "")
-
-        if stripe_key:
-            # Capture second PI first. If it fails, cancel it — first PI never touched,
-            # so no charge to either user. Only then capture first PI (already authorized).
-            try:
-                stripe.PaymentIntent.capture(intent.id)
-            except stripe.error.StripeError as e:
-                logger.error("capture_second_failed", matchId=match["matchId"], piId=intent.id, error=str(e))
-                try:
-                    stripe.PaymentIntent.cancel(intent.id)
-                except stripe.error.StripeError:
-                    pass  # already expired/cancelled — safe
-                raise AppError(500, "Payment capture failed. No charges applied.")
-
-            try:
-                stripe.PaymentIntent.capture(first_pi_id)
-            except stripe.error.StripeError as e:
-                # Second PI already captured — refund it so neither user pays.
-                logger.error("capture_first_failed", matchId=match["matchId"], piId=first_pi_id, error=str(e))
-                try:
-                    stripe.Refund.create(payment_intent=intent.id)
-                except stripe.error.StripeError as re:
-                    logger.error("refund_failed", piId=intent.id, error=str(re))
-                raise AppError(500, "Payment capture failed. No charges applied.")
-
+        # Second unlock: record the intent + both unlockers, but DO NOT capture here.
+        # A manual-capture PI must first be authorized by the client (confirmCardPayment).
+        # Capture of both holds is webhook-driven (payment_intent.amount_capturable_updated):
+        # once both PIs reach requires_capture, the webhook captures them and flips the
+        # match to "unlocked". The match stays partially_unlocked until then.
         table.update_item(
             Key={"pk": match["pk"], "sk": "META"},
             UpdateExpression=(
-                "SET #status = :status, "
-                "unlockedBy = :ub, "
+                "SET unlockedBy = :ub, "
                 "secondUnlockPaymentIntentId = :spi, "
                 "updatedAt = :ua"
             ),
-            ExpressionAttributeNames={"#status": "status"},
             ExpressionAttributeValues={
-                ":status": "unlocked",
                 ":ub": unlocked_by,
                 ":spi": intent.id,
                 ":ua": now.isoformat(),
@@ -221,24 +196,15 @@ def handler(event, context):
             ConditionExpression=Attr("status").eq("partially_unlocked"),
         )
 
-        cancel_unlock_timeout_schedule(match["matchId"])
-
-        put_event("payment.completed", {
-            "matchId": match["matchId"],
-            "userId1": match["userId1"],
-            "userId2": match["userId2"],
-        })
-
-        # Business metric: deadlock resolved (both users unlocked)
-        business_metrics.record_deadlock_resolution(resolved=True, airport_code=match.get("airportCode", "ALL"))
-
-        logger.info("match_fully_unlocked", matchId=match["matchId"])
+        logger.info("match_second_hold_pending_capture", matchId=match["matchId"], piId=intent.id)
 
     save_payment(user_id, match["matchId"], intent.id, airport)
 
+    # Real payment path: the match stays partially_unlocked until the webhook
+    # captures both authorized holds. The client authorizes its hold with this secret.
     return success({
         "paymentIntentClientSecret": intent.client_secret,
         "amount": airport.unlock_fee,
         "currency": airport.currency.lower(),
-        "matchStatus": "partially_unlocked" if len(unlocked_by) == 1 else "unlocked",
+        "matchStatus": "partially_unlocked",
     }, origin)

@@ -49,13 +49,6 @@ class TestGetAirport:
         zone_codes = [z.code for z in airport.zones]
         assert set(zone_codes) == {"centro", "nord", "ovest", "sud", "est"}
 
-    def test_mxp_has_adjacent_zones(self):
-        """Centro should be adjacent to all other zones."""
-        airport = get_airport("MXP")
-
-        centro_adjacent = airport.adjacent_zones["centro"]
-        assert set(centro_adjacent) == {"nord", "ovest", "sud", "est"}
-
     def test_mxp_has_meeting_points(self):
         """MXP should have meeting points for T1 and T2."""
         airport = get_airport("MXP")

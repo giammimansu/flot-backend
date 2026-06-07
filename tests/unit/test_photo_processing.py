@@ -54,8 +54,8 @@ class TestGetPhotoUploadUrl:
         result = handler(event, lambda_context)
 
         body = json.loads(result["body"])
-        # The presigned URL includes content-type in signed headers
-        assert "content-type" in body["uploadUrl"].lower()
+        # Presigned POST: content type is carried in the signed form fields.
+        assert body["uploadFields"].get("Content-Type") == "image/webp"
 
 
 class TestProcessPhoto:

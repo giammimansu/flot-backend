@@ -7,7 +7,7 @@ from __future__ import annotations
 from aws_lambda_powertools import Logger, Tracer
 from botocore.exceptions import ClientError
 from lib import dynamo
-from lib.http import app_handler, json_response
+from lib.http import app_handler, success
 
 logger = Logger()
 tracer = Tracer()
@@ -33,4 +33,4 @@ def handler(event: dict, context) -> dict:
         logger.error("Failed to query notifications", exc_info=True)
         items = []
 
-    return json_response({"notifications": items}, origin)
+    return success({"notifications": items}, origin)

@@ -36,15 +36,18 @@ def test_process_airport_no_trips():
 
 
 def test_process_airport_with_matches():
+    # Future flight times so trips are inside the matching window (not expired).
+    now = datetime.now(timezone.utc)
+    ft_a = (now + timedelta(days=1)).isoformat().replace("+00:00", "Z")
+    ft_b = (now + timedelta(days=1, minutes=15)).isoformat().replace("+00:00", "Z")
+    created = now.isoformat().replace("+00:00", "Z")
     mock_trip_a = {
         "tripId": "1", "pk": "TRIP#1", "userId": "u1", "status": "scheduled",
-        "flightTime": "2026-05-05T10:00:00Z", "airportCode": "MXP",
-        "createdAt": "2026-05-01T10:00:00Z",
+        "flightTime": ft_a, "airportCode": "MXP", "createdAt": created,
     }
     mock_trip_b = {
         "tripId": "2", "pk": "TRIP#2", "userId": "u2", "status": "scheduled",
-        "flightTime": "2026-05-05T10:15:00Z", "airportCode": "MXP",
-        "createdAt": "2026-05-01T10:00:00Z",
+        "flightTime": ft_b, "airportCode": "MXP", "createdAt": created,
     }
 
     with patch("handlers.matching.matchmaker.dynamo.query_gsi", return_value=[mock_trip_a, mock_trip_b]), \

@@ -512,7 +512,7 @@ CI/CD:          GitHub Actions &rarr; sam build &rarr; sam deploy</pre>
           <tr><td><span class="mono">FlightTrackerFunction</span></td><td>EventBridge Scheduler</td><td>Polling ETA voli da flightNumber, aggiorna flightTime; circuit breaker dopo 3 fallimenti.</td></tr>
           <tr><td><span class="mono">UnlockTimeoutFunction</span></td><td>EventBridge Scheduler one-shot</td><td>Allo scadere del timeout: void auth + re-pool trip.</td></tr>
           <tr><td><span class="mono">CreateTripFunction</span></td><td>API Gateway REST</td><td>Crea trip, risolve ETA, emette <code>trip.created</code>.</td></tr>
-          <tr><td><span class="mono">UnlockMatchFunction</span></td><td>API Gateway REST</td><td>Gestisce primo/secondo unlock, capture simultaneo.</td></tr>
+          <tr><td><span class="mono">UnlockMatchFunction</span></td><td>API Gateway REST</td><td>Gestisce primo/secondo unlock (crea i PaymentIntent); la cattura è webhook-driven.</td></tr>
           <tr><td><span class="mono">StripeWebhookFunction</span></td><td>API Gateway (no auth)</td><td>Riconcilia eventi di pagamento.</td></tr>
           <tr><td><span class="mono">WebSocket handlers</span></td><td>API Gateway WebSocket</td><td><code>$connect</code> / <code>$disconnect</code> / relay chat e typing.</td></tr>
         </tbody>
@@ -756,7 +756,9 @@ CI/CD:          GitHub Actions &rarr; sam build &rarr; sam deploy</pre>
   &rarr; crea EventBridge Scheduler one-shot per il timeout
 
 Utente B sblocca entro la deadline
-  &rarr; CAPTURE SIMULTANEO dei due PaymentIntent
+  &rarr; secondo PaymentIntent (manual) &rarr; B autorizza l'hold lato client
+  &rarr; webhook payment_intent.amount_capturable_updated
+  &rarr; entrambi gli hold requires_capture &rarr; CAPTURE dei due PI (secondo&rarr;primo)
   &rarr; Match status: <span class="str">"unlocked"</span> &rarr; chat abilitata
 
 B NON risponde entro la deadline
@@ -768,12 +770,12 @@ B NON risponde entro la deadline
 
     <div class="callout crit">
       <div class="callout-title">✖ Mai capture senza entrambi gli auth — ordine di sicurezza</div>
-      <p>Il capture avviene in questo ordine preciso per garantire zero charge unilaterali:</p>
+      <p>La cattura è <strong>webhook-driven</strong> (<code class="ic">payment_intent.amount_capturable_updated</code>): scatta solo quando <strong>entrambi</strong> i PaymentIntent sono <code class="ic">requires_capture</code>. Un claim <code class="ic">captureInProgress</code> rende sicure le delivery concorrenti. L'ordine garantisce zero charge unilaterali:</p>
       <ol style="margin: 8px 0 0 18px; line-height: 1.8">
         <li><strong>Capture secondo PI</strong> (utente B) — se fallisce, viene cancellato; il primo PI di A non viene mai toccato → €0 addebitati.</li>
         <li><strong>Capture primo PI</strong> (utente A) — se fallisce dopo che il secondo è già stato catturato, viene emesso un <strong>Refund</strong> immediato sul secondo → €0 addebitati.</li>
       </ol>
-      <p style="margin-top: 8px">Questo ordine (secondo prima del primo) era invertito nelle versioni precedenti, esponendo al rischio di addebitare B senza addebitare A.</p>
+      <p style="margin-top: 8px">In caso di fallimento la cattura non lascia addebiti unilaterali e il claim viene rilasciato (il match torna <code class="ic">partially_unlocked</code>); il timeout di deadlock resta come rete di sicurezza. Questo ordine (secondo prima del primo) era invertito nelle versioni precedenti.</p>
     </div>
 
     <h3>previousMatchPartners</h3>
@@ -821,11 +823,12 @@ partially_unlocked → unlock_expired / dissolved / expired</pre>
 
     <h3>#2 — Stripe Hardening</h3>
     <p><strong>Bug corretto (doppio capture):</strong> il capture del secondo PI avviene <em>prima</em> del primo. Se il secondo fallisce → cancel; il primo non è mai toccato (€0). Se il primo fallisce dopo che il secondo è già catturato → Refund immediato sul secondo (€0). Vedi callout nella sezione Payment Deadlock.</p>
+    <p><strong>Aggiornamento (07/06/2026) — cattura webhook-driven:</strong> un PaymentIntent a cattura manuale va prima autorizzato dal client (<code class="ic">confirmPayment</code>), quindi <code class="ic">unlock_match</code> non cattura più in modo sincrono. Il secondo unlock registra il PI e resta <code class="ic">partially_unlocked</code>; la cattura dei due hold avviene in <code class="ic">stripe_webhook.py</code> su <code class="ic">amount_capturable_updated</code> quando entrambi sono <code class="ic">requires_capture</code> (stesso ordine sicuro, claim <code class="ic">captureInProgress</code>). Aggiunta la Lambda <code class="ic">StripeWebhookFunction</code> nel template SAM.</p>
     <p><strong>Webhook handler:</strong> nuovo <code class="ic">POST /webhooks/stripe</code> (handler: <code class="ic">src/handlers/webhooks/stripe_webhook.py</code>). Deduplicazione via DynamoDB conditional put su <code class="ic">pk=STRIPE_EVENT#&lt;id&gt;</code> (TTL 7 giorni). Firma Stripe verificata se <code class="ic">STRIPE_WEBHOOK_SECRET</code> è configurato.</p>
     <div class="tbl-wrap"><table>
       <thead><tr><th>Evento Stripe</th><th>Comportamento</th></tr></thead>
       <tbody>
-        <tr><td><code>payment_intent.amount_capturable_updated</code></td><td>Log only (capture avviene in unlock_match)</td></tr>
+        <tr><td><code>payment_intent.amount_capturable_updated</code></td><td>Quando entrambi gli hold sono <code>requires_capture</code> → cattura i due PI (secondo→primo) → match <code>unlocked</code> + <code>payment.completed</code></td></tr>
         <tr><td><code>payment_intent.payment_failed</code></td><td>Log error (alert ops)</td></tr>
         <tr><td><code>payment_intent.canceled</code></td><td>Log info</td></tr>
       </tbody>
@@ -1099,7 +1102,7 @@ TOTAL                                                       6.47</pre>
         <div class="block-label">Request &middot; Response</div>
 <pre>{ <span class="key">"matchId"</span>: <span class="str">"match_xyz"</span> }
 &rarr; { <span class="key">"success"</span>: <span class="kw">true</span>, <span class="key">"matchStatus"</span>: <span class="str">"partially_unlocked"</span> }</pre>
-        <div class="notes"><b>Note:</b> crea un PaymentIntent con <code>capture_method: manual</code>. Primo unlock &rarr; <code>partially_unlocked</code>; secondo unlock &rarr; capture simultaneo &rarr; <code>unlocked</code>. Con <code>FAKE_DOOR_MODE=true</code> restituisce <code>{ fakeDoor: true }</code> senza Stripe.</div>
+        <div class="notes"><b>Note:</b> crea un PaymentIntent con <code>capture_method: manual</code> e ritorna <code>paymentIntentClientSecret</code> (il client autorizza l'hold). Primo e secondo unlock restano <code>partially_unlocked</code>; la cattura dei due hold avviene via webhook <code>amount_capturable_updated</code> &rarr; <code>unlocked</code>. Con <code>FAKE_DOOR_MODE</code>/<code>BETA_MODE</code> nessuno Stripe (unlock immediato).</div>
       </div>
     </div>
 

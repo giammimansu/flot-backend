@@ -871,6 +871,36 @@ Resources:
             Path: /matches/{matchId}/decline
             Method: POST
 
+  StripeWebhookFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-stripe-webhook-${Stage}
+      Handler: handlers.webhooks.stripe_webhook.handler
+      CodeUri: src/
+      Description: POST /webhooks/stripe — reconcile payments + capture both holds
+      Environment:
+        Variables:
+          STRIPE_SECRET_KEY: !If [IsDev, "", !Sub "{{resolve:ssm:/flot/${Stage}/stripe-secret-key}}"]
+          STRIPE_WEBHOOK_SECRET: !If [IsDev, "", !Sub "{{resolve:ssm:/flot/${Stage}/stripe-webhook-secret}}"]
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlotTable
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref FlotEventBus
+        - Statement:
+            Effect: Allow
+            Action: scheduler:DeleteSchedule
+            Resource: !Sub "arn:aws:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/default/unlock-*"
+      Events:
+        StripeWebhook:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FlotApi
+            Path: /webhooks/stripe
+            Method: POST
+            Auth:
+              Authorizer: NONE
+
   # ── Admin (IAM auth) ──────────────────────────────────────────────
 
   AdminVoidMatchFunction:
