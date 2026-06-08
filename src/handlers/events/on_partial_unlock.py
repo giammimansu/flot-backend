@@ -8,9 +8,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from lib.airports import get_airport
-from lib.dynamo import get_user, save_notification as dynamo_save_notification, now_iso
-from lib.notifications import save_notification, send_push_notification
-from lib.websocket import send_to_user
+from lib.dynamo import get_user
+from lib.notifications import deliver
 from lib.schedulers import create_unlock_reminder_schedule
 from handlers.chat.system_message import post_partner_unlocked
 from aws_lambda_powertools import Logger
@@ -34,31 +33,20 @@ def handler(event, context):
 
     savings = airport.base_fare // 2 / 100
 
-    # 1. WebSocket (se online)
-    send_to_user(partner_id, {
-        "type": "match.partner_unlocked",
-        "data": {
+    name = unlocked_by_name.split()[0] if unlocked_by_name else "Il tuo partner"
+
+    # WS → Push → Email chain with dedup (push skipped if WS delivered)
+    deliver(
+        partner_id,
+        title=f"{name} ha sbloccato! 🔓",
+        body=f"Sblocca anche tu per condividere il taxi e risparmiare ~€{savings:.0f}",
+        payload={
+            "type": "match.partner_unlocked",
             "matchId": match_id,
             "partnerName": unlocked_by_name,
             "deadline": deadline,
+            "action": "open_match",
         },
-    })
-
-    # 2. Push notification — urgente
-    if partner.get("pushToken"):
-        send_push_notification(
-            token=partner["pushToken"],
-            title=f"{unlocked_by_name.split()[0] if unlocked_by_name else 'Il tuo partner'} ha sbloccato! 🔓",
-            body=f"Sblocca anche tu per condividere il taxi e risparmiare ~€{savings:.0f}",
-            payload={"matchId": match_id, "action": "open_match"},
-        )
-
-    # 3. Salva notifica in-app (via lib.notifications for consistent schema)
-    save_notification(
-        partner_id,
-        f"{unlocked_by_name.split()[0] if unlocked_by_name else 'Il tuo partner'} ha sbloccato!",
-        "Sblocca anche tu per condividere il taxi",
-        {"type": "partner_unlocked", "matchId": match_id},
     )
 
     # 4. System message in chat
