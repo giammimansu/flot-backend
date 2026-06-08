@@ -5,6 +5,7 @@ same airport. If a match is found, persists Match record + emits match.found.
 """
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
@@ -17,10 +18,13 @@ from lib.airports import get_airport
 from lib.eventbridge import put_event
 from lib.flight_tracker import FlightTrackerError, fetch_flight_eta
 from lib.http import AppError, app_handler, created
-from lib.matching import get_time_bucket
+from lib.matching import get_time_bucket, is_in_active_window, next_active_window_label
 from lib.trust import is_banned
 from lib.validation import CreateTripRequest, TripMode
 from lib.zones import coords_to_zone, is_valid_direction, is_valid_terminal, is_valid_zone
+
+_MVP_SINGLE_ROUTE_MODE = os.environ.get("MVP_SINGLE_ROUTE_MODE", "false") == "true"
+_MVP_TIME_WINDOWS_MODE = os.environ.get("MVP_TIME_WINDOWS_MODE", "false") == "true"
 
 logger = Logger()
 tracer = Tracer()
@@ -52,6 +56,18 @@ def handler(event: dict, context) -> dict:
         raise AppError(400, f"Zone {req.destZone} not valid for {airport.code}")
     if not is_valid_direction(airport.code, req.direction):
         raise AppError(400, f"Direction {req.direction} not valid for {airport.code}")
+
+    # MVP single-route gate
+    if _MVP_SINGLE_ROUTE_MODE:
+        if not airport.to_airport_direction:
+            raise AppError(400, "Aeroporto non disponibile nella versione MVP")
+        if req.direction != airport.to_airport_direction:
+            raise AppError(
+                400,
+                f"MVP: solo la direzione {airport.to_airport_direction} è disponibile per {airport.code}",
+            )
+        if req.originLat is None or req.originLng is None or not req.originPlaceId:
+            raise AppError(400, "originLat, originLng e originPlaceId sono obbligatori per la direzione TO_AIRPORT")
 
     # Load user (for matching profile bonuses)
     user_item = dynamo.get_item(f"USER#{user_id}", "PROFILE") or {}
@@ -115,6 +131,8 @@ def handler(event: dict, context) -> dict:
         "destLng": Decimal(str(req.destLng)),
         "destPlaceId": req.destPlaceId,
         "destZone": destZone,
+        # MVP TO_AIRPORT origin (departure address in city)
+        **({"originLat": Decimal(str(req.originLat)), "originLng": Decimal(str(req.originLng)), "originPlaceId": req.originPlaceId} if req.originLat is not None else {}),
         "mode": req.mode.value,
         "flightNumber": req.flightNumber,
         "flightDate": req.flightDate,
@@ -140,6 +158,15 @@ def handler(event: dict, context) -> dict:
     dynamo.put_item(trip_item)
     put_event("trip.created", {"tripId": trip_id, "mode": req.mode.value})
 
+    if _MVP_TIME_WINDOWS_MODE and airport.mvp_active_windows and not is_in_active_window(airport, now):
+        next_window = next_active_window_label(airport, now)
+        dynamo.save_notification(user_id, {
+            "type": "trip_queued",
+            "title": "Viaggio registrato",
+            "body": f"Il match verrà cercato nella prossima fascia oraria: {next_window}",
+            "tripId": trip_id,
+        })
+
     return created(
         {
             "tripId": trip_id,
@@ -152,6 +179,7 @@ def handler(event: dict, context) -> dict:
             "destLng": req.destLng,
             "destPlaceId": req.destPlaceId,
             "destZone": destZone,
+            **({"originLat": req.originLat, "originLng": req.originLng, "originPlaceId": req.originPlaceId} if req.originLat is not None else {}),
             "mode": req.mode.value,
             "flightNumber": req.flightNumber,
             "flightDate": req.flightDate,

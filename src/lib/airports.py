@@ -82,6 +82,18 @@ class AirportConfig:
     trust_decrement_per_violation: float = 0.2  # subtracted on each no-show / no-response
     trust_ban_violations: int = 3           # hard ban after N violations
 
+    # MVP feature-flag fields (default = no restriction / full behaviour)
+    # to_airport_direction: the direction label that means "from city to airport".
+    # Empty string = airport does not participate in MvpSingleRouteMode.
+    to_airport_direction: str = ""
+    # mvp_active_windows: list of (start_hour_inclusive, end_hour_exclusive) in airport.timezone.
+    # Empty list = always active (no window gate).
+    mvp_active_windows: list[tuple[int, int]] = field(default_factory=list)
+    # max_origin_distance_km: gate — pairs whose origins are farther apart are excluded.
+    max_origin_distance_km: float = 2.0
+    # pickup_radius_m: gate — midpoint must be within this radius (metres) of each origin.
+    pickup_radius_m: int = 750
+
 
 # ─────────────────────────────────────────────────────────────────────
 # Airport Registry
@@ -129,6 +141,10 @@ AIRPORTS: dict[str, AirportConfig] = {
         trust_threshold=0.4,
         trust_decrement_per_violation=0.2,
         trust_ban_violations=3,
+        to_airport_direction="FROM_MILAN",
+        mvp_active_windows=[(6, 9), (14, 17), (20, 23)],
+        max_origin_distance_km=2.0,
+        pickup_radius_m=750,
     ),
     # ── P2 #12 — Second real airport: Roma Fiumicino ─────────────────
     # Validates that nothing is hardcoded outside this registry. Same shape

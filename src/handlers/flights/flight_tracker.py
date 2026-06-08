@@ -30,6 +30,10 @@ MIN_DELTA_MIN = 10
 @tracer.capture_lambda_handler
 @metrics.log_metrics
 def handler(event: dict, context) -> dict:
+    if os.environ.get("MVP_FLIGHT_TRACKER_ENABLED", "true") != "true":
+        logger.info("flight_tracker_disabled_by_mvp_flag")
+        return {"updated": 0, "disabled": True}
+
     now = datetime.now(timezone.utc)
     airports = get_active_airports()
     updated_count = 0

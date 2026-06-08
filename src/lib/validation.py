@@ -124,6 +124,12 @@ class CreateTripRequest(BaseModel):
     destLng: float = Field(..., ge=-180, le=180)  # noqa: N815
     destPlaceId: str  # noqa: N815
     destZone: str | None = None  # noqa: N815
+    # MVP TO_AIRPORT: departure address in city (required when direction == to_airport_direction).
+    # Validated as required by the create_trip handler, not at Pydantic level,
+    # so that the field remains optional for all other directions.
+    originLat: float | None = Field(None, ge=-90, le=90)   # noqa: N815
+    originLng: float | None = Field(None, ge=-180, le=180)  # noqa: N815
+    originPlaceId: str | None = None                        # noqa: N815
     luggage: int = Field(default=0, ge=0, le=6)
     paxCount: int = Field(default=1, ge=1, le=4)  # noqa: N815
     mode: TripMode

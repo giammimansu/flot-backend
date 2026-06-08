@@ -30,6 +30,11 @@ Globals:
         SES_FROM_EMAIL: !Ref SesFromEmail
         MATCH_NOTIFICATION_TEMPLATE: !Ref MatchNotificationTemplate
         FIREBASE_CREDENTIALS_SECRET_ARN: !Ref FirebaseCredentialsSecretArn
+        MVP_SINGLE_ROUTE_MODE: !Ref MvpSingleRouteMode
+        MVP_TIME_WINDOWS_MODE: !Ref MvpTimeWindowsMode
+        MVP_SHADOW_POOL_OFF: !Ref MvpShadowPoolOff
+        MVP_FLIGHT_TRACKER_ENABLED: !Ref MvpFlightTrackerEnabled
+        MVP_PICKUP_SIMPLE_MODE: !Ref MvpPickupSimpleMode
 
 # ─────────────────────────────────────────────────────────────────────
 # Parameters
@@ -50,6 +55,41 @@ Parameters:
     AllowedValues:
       - 'true'
       - 'false'
+
+  # ── MVP Feature Flags ─────────────────────────────────────────────
+  # All default to 'false' (full v4 behaviour). Set to 'true' in dev
+  # samconfig.toml to activate the MVP restricted configuration.
+  # Fully reversible: set back to 'false' to restore v4 behaviour.
+
+  MvpSingleRouteMode:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Restrict trip creation to MXP TO_AIRPORT direction only.
+
+  MvpTimeWindowsMode:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Gate matchmaker to airport-configured active time windows.
+
+  MvpShadowPoolOff:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Skip shadow pool (TentativeMatch); use greedy direct matching.
+
+  MvpFlightTrackerEnabled:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Set to 'false' to disable the FlightTracker Lambda (MVP cost saving).
+
+  MvpPickupSimpleMode:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Use geometric midpoint + origin-distance gates for pick-up point.
 
   GoogleClientId:
     Type: AWS::SSM::Parameter::Value<String>

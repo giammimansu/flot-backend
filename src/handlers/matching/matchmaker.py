@@ -23,9 +23,12 @@ from lib.matching import (
     can_match_direction,
     compute_dynamic_threshold,
     compute_match_score,
+    compute_pickup_point,
     estimate_detour_minutes,
     apply_detour_penalty,
+    get_match_coords,
     haversine_km,
+    is_in_active_window,
 )
 from lib.eventbridge import put_event
 
@@ -34,6 +37,11 @@ tracer = Tracer()
 metrics = Metrics()
 
 LOCK_HOURS_BEFORE = int(os.environ.get("LOCK_HOURS_BEFORE", "3"))
+
+_MVP_SINGLE_ROUTE_MODE = os.environ.get("MVP_SINGLE_ROUTE_MODE", "false") == "true"
+_MVP_TIME_WINDOWS_MODE = os.environ.get("MVP_TIME_WINDOWS_MODE", "false") == "true"
+_MVP_SHADOW_POOL_OFF = os.environ.get("MVP_SHADOW_POOL_OFF", "false") == "true"
+_MVP_PICKUP_SIMPLE_MODE = os.environ.get("MVP_PICKUP_SIMPLE_MODE", "false") == "true"
 
 
 # ── Handler ───────────────────────────────────────────────────────────
@@ -44,6 +52,8 @@ LOCK_HOURS_BEFORE = int(os.environ.get("LOCK_HOURS_BEFORE", "3"))
 def handler(event: dict, context) -> dict:
     now = datetime.now(timezone.utc)
     airports = get_active_airports()
+    if _MVP_SINGLE_ROUTE_MODE:
+        airports = [a for a in airports if a.to_airport_direction]
     locked_count = 0
     tentative_count = 0
 
@@ -56,10 +66,44 @@ def handler(event: dict, context) -> dict:
 
 
 def process_airport_v4(airport: AirportConfig, now: datetime) -> tuple[int, int]:
+    if _MVP_TIME_WINDOWS_MODE and airport.mvp_active_windows:
+        if not is_in_active_window(airport, now):
+            logger.info("mvp_time_window_skip", airport=airport.code)
+            return 0, 0
+
     expire_stale_trips(airport.code, now)
+
+    if _MVP_SHADOW_POOL_OFF:
+        matched = _greedy_match_pool(airport, now)
+        return matched, 0
+
     locked = process_lock_window(airport, now)
     tentative = optimize_pool(airport, now)
     return locked, tentative
+
+
+def _greedy_match_pool(airport: AirportConfig, now: datetime) -> int:
+    """
+    Greedy direct matching with dynamic threshold.
+    Used when MVP_SHADOW_POOL_OFF=true — skips TentativeMatch entirely and
+    creates definitive matches immediately. Dynamic threshold is preserved per v4 rule.
+    """
+    pool = _query_active_pool(airport.code, now)
+    if len(pool) < 2:
+        return 0
+    pairs = build_compatibility_matrix(pool, airport, now)
+    assignments = find_optimal_assignments(pairs)
+    matched = 0
+    for trip_a_id, trip_b_id, score, _dist_km, _detour_min in assignments:
+        trip_a = next((t for t in pool if t["tripId"] == trip_a_id), None)
+        trip_b = next((t for t in pool if t["tripId"] == trip_b_id), None)
+        if not trip_a or not trip_b:
+            continue
+        pickup = compute_pickup_point(trip_a, trip_b, airport) if _MVP_PICKUP_SIMPLE_MODE else None
+        _create_direct_match(trip_a, trip_b, score, airport, pickup_point=pickup)
+        matched += 1
+        metrics.add_metric(name="MatchesCreated", unit=MetricUnit.Count, value=1)
+    return matched
 
 
 def expire_stale_trips(airport_code: str, now: datetime) -> None:
@@ -135,7 +179,8 @@ def _promote_tentative_to_match(
     Condition expression on both trips ensures idempotency under concurrent runs.
     Returns True if match was created, False if skipped (already processed).
     """
-    match_item = build_match_item(trip_a, trip_b, float(tm.get("score", 0)))
+    pickup = compute_pickup_point(trip_a, trip_b, airport) if _MVP_PICKUP_SIMPLE_MODE else None
+    match_item = build_match_item(trip_a, trip_b, float(tm.get("score", 0)), pickup_point=pickup)
     table_name = os.environ["TABLE_NAME"]
 
     # Keep gsi5pk = "{airport}#matched" so dissolve/expire checker can find these
@@ -266,8 +311,8 @@ def optimize_pool(airport: AirportConfig, now: datetime) -> int:
         lock_at = min(dt_a, dt_b) - timedelta(hours=LOCK_HOURS_BEFORE)
 
         if lock_at <= now:
-            # Past lock window — create definitive match directly
-            _create_direct_match(trip_a, trip_b, score, airport)
+            pickup = compute_pickup_point(trip_a, trip_b, airport) if _MVP_PICKUP_SIMPLE_MODE else None
+            _create_direct_match(trip_a, trip_b, score, airport, pickup_point=pickup)
             metrics.add_metric(name="MatchesLocked", unit=MetricUnit.Count, value=1)
             continue
 
@@ -360,10 +405,11 @@ def _create_direct_match(
     trip_b: dict,
     score: float,
     airport: AirportConfig,
+    pickup_point: dict | None = None,
 ) -> None:
     """Creates a definitive match directly (no TentativeMatch exists). Used when already past lock window."""
     table_name = os.environ["TABLE_NAME"]
-    match_item = build_match_item(trip_a, trip_b, score)
+    match_item = build_match_item(trip_a, trip_b, score, pickup_point=pickup_point)
 
     # Keep gsi5pk = "{airport}#matched" so dissolve/expire checker can find these
     # via GSI5 (gsi5sk = flightTime). Drop gsi1pk to remove from the active pool index.
@@ -428,7 +474,21 @@ def _create_direct_match(
     logger.info("direct_match_created", matchId=match_item["matchId"], score=round(score, 2))
 
 
-# ── Compatibility matrix + assignment (Sprint 2) ──────────────────────
+# ── Compatibility matrix + assignment ────────────────────────────────
+
+
+def _safe_match_coords(trip: dict, airport: AirportConfig) -> tuple[float, float] | None:
+    """Returns match coords for the trip, or None if the required fields are missing."""
+    if (
+        airport.to_airport_direction
+        and trip.get("direction") == airport.to_airport_direction
+    ):
+        if trip.get("originLat") is None:
+            return None
+        return float(trip["originLat"]), float(trip["originLng"])
+    if trip.get("destLat") is None:
+        return None
+    return float(trip["destLat"]), float(trip["destLng"])
 
 def build_compatibility_matrix(
     pool: list[dict],
@@ -449,8 +509,6 @@ def build_compatibility_matrix(
                 continue
             if not can_match_direction(trip_a, trip_b):
                 continue
-            if "destLat" not in trip_a or "destLat" not in trip_b:
-                continue
             if not trip_a.get("flightTime") or not trip_b.get("flightTime"):
                 continue
 
@@ -465,24 +523,57 @@ def build_compatibility_matrix(
                 trip_b["flightTime"],
                 now,
             )
-            dist_km = haversine_km(
-                trip_a["destLat"], trip_a["destLng"],
-                trip_b["destLat"], trip_b["destLng"],
-            )
-            detour_min = estimate_detour_minutes(trip_a, trip_b, airport)
 
-            if detour_min > airport.max_detour_minutes:
-                continue
+            if _MVP_PICKUP_SIMPLE_MODE:
+                # MVP: coordinate-availability check on origin (for TO_AIRPORT) or dest
+                coord_a = _safe_match_coords(trip_a, airport)
+                coord_b = _safe_match_coords(trip_b, airport)
+                if coord_a is None or coord_b is None:
+                    continue
 
-            user_a = dynamo.get_item(f"USER#{trip_a['userId']}", "PROFILE") or {}
-            user_b = dynamo.get_item(f"USER#{trip_b['userId']}", "PROFILE") or {}
+                lat_a, lng_a = coord_a
+                lat_b, lng_b = coord_b
 
-            # P2 #10 — exclude low-trust / banned users from matching.
-            if not meets_threshold(user_a, airport) or not meets_threshold(user_b, airport):
-                continue
+                # Gate 1: origins must be within max_origin_distance_km of each other
+                dist_km = haversine_km(lat_a, lng_a, lat_b, lng_b)
+                if dist_km > airport.max_origin_distance_km:
+                    continue
 
-            score = compute_match_score(trip_a, trip_b, user_a, user_b, mode="scheduled")
-            score = apply_detour_penalty(score, detour_min, airport.max_detour_minutes)
+                # Gate 2: midpoint must be within pickup_radius_m of each origin
+                mid_lat = (lat_a + lat_b) / 2
+                mid_lng = (lng_a + lng_b) / 2
+                radius_km = airport.pickup_radius_m / 1000.0
+                if (haversine_km(mid_lat, mid_lng, lat_a, lng_a) > radius_km or
+                        haversine_km(mid_lat, mid_lng, lat_b, lng_b) > radius_km):
+                    continue
+
+                user_a = dynamo.get_item(f"USER#{trip_a['userId']}", "PROFILE") or {}
+                user_b = dynamo.get_item(f"USER#{trip_b['userId']}", "PROFILE") or {}
+                if not meets_threshold(user_a, airport) or not meets_threshold(user_b, airport):
+                    continue
+
+                score = compute_match_score(trip_a, trip_b, user_a, user_b, mode="scheduled", airport=airport)
+                detour_min = 0.0
+            else:
+                # v4: dest-coordinate availability check
+                if "destLat" not in trip_a or "destLat" not in trip_b:
+                    continue
+
+                dist_km = haversine_km(
+                    float(trip_a["destLat"]), float(trip_a["destLng"]),
+                    float(trip_b["destLat"]), float(trip_b["destLng"]),
+                )
+                detour_min = estimate_detour_minutes(trip_a, trip_b, airport)
+                if detour_min > airport.max_detour_minutes:
+                    continue
+
+                user_a = dynamo.get_item(f"USER#{trip_a['userId']}", "PROFILE") or {}
+                user_b = dynamo.get_item(f"USER#{trip_b['userId']}", "PROFILE") or {}
+                if not meets_threshold(user_a, airport) or not meets_threshold(user_b, airport):
+                    continue
+
+                score = compute_match_score(trip_a, trip_b, user_a, user_b, mode="scheduled")
+                score = apply_detour_penalty(score, detour_min, airport.max_detour_minutes)
 
             if score >= dynamic_threshold:
                 pairs.append((trip_a["tripId"], trip_b["tripId"], score, round(dist_km, 2), round(detour_min, 2)))

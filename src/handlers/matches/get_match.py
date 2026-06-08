@@ -53,7 +53,7 @@ def _trip_summary(trip: dict) -> dict:
 
 
 def _to_response(match: dict, trip1: dict, trip2: dict) -> dict:
-    return {
+    response = {
         "matchId": match.get("matchId"),
         "status": match.get("status"),
         "airportCode": match.get("airportCode"),
@@ -66,3 +66,6 @@ def _to_response(match: dict, trip1: dict, trip2: dict) -> dict:
         "trip1": _trip_summary(trip1),
         "trip2": _trip_summary(trip2),
     }
+    if match.get("pickupPoint"):
+        response["pickupPoint"] = match["pickupPoint"]
+    return response

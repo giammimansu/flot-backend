@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from math import atan2, cos, radians, sin, sqrt
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from aws_lambda_powertools import Logger
 
@@ -189,8 +190,21 @@ def can_match_modes(trip_a: dict, trip_b: dict) -> bool:
     live_time = datetime.fromisoformat(live["createdAt"].replace("Z", "+00:00"))
     return (slot_start - timedelta(minutes=_LIVE_TOLERANCE_MIN)) <= live_time <= slot_end
 
-def compute_match_score(trip_a: dict, trip_b: dict, user_a: dict, user_b: dict, mode: str = "scheduled") -> float:
-    dist_km = haversine_km(trip_a["destLat"], trip_a["destLng"], trip_b["destLat"], trip_b["destLng"])
+def compute_match_score(
+    trip_a: dict,
+    trip_b: dict,
+    user_a: dict,
+    user_b: dict,
+    mode: str = "scheduled",
+    airport: "AirportConfig | None" = None,
+) -> float:
+    if airport is not None:
+        lat_a, lng_a = get_match_coords(trip_a, airport)
+        lat_b, lng_b = get_match_coords(trip_b, airport)
+    else:
+        lat_a, lng_a = float(trip_a["destLat"]), float(trip_a["destLng"])
+        lat_b, lng_b = float(trip_b["destLat"]), float(trip_b["destLng"])
+    dist_km = haversine_km(lat_a, lng_a, lat_b, lng_b)
     d_score = distance_score(dist_km)
     t_score = time_score(trip_a.get("timeBucket", ""), trip_b.get("timeBucket", ""))
     p_score = profile_score(user_a, user_b)
@@ -233,6 +247,73 @@ def check_time_compatibility(
     return delta_min <= window
 
 
+# ── MVP helpers ───────────────────────────────────────────────────────
+
+def get_match_coords(trip: dict, airport: AirportConfig) -> tuple[float, float]:
+    """
+    Returns the coordinate pair to use for distance-based matching.
+    For TO_AIRPORT trips, uses the city departure origin (originLat/Lng).
+    For all other directions, uses the trip destination (destLat/Lng).
+    """
+    if (
+        airport.to_airport_direction
+        and trip.get("direction") == airport.to_airport_direction
+        and trip.get("originLat") is not None
+    ):
+        return float(trip["originLat"]), float(trip["originLng"])
+    return float(trip["destLat"]), float(trip["destLng"])
+
+
+def is_in_active_window(airport: AirportConfig, now_utc: datetime) -> bool:
+    """Returns True if now_utc falls within any of airport.mvp_active_windows (local time)."""
+    if not airport.mvp_active_windows:
+        return True
+    local_now = now_utc.astimezone(ZoneInfo(airport.timezone))
+    h = local_now.hour
+    return any(start <= h < end for start, end in airport.mvp_active_windows)
+
+
+def next_active_window_label(airport: AirportConfig, now_utc: datetime) -> str:
+    """Returns a human-readable label for the next active matching window."""
+    if not airport.mvp_active_windows:
+        return "adesso"
+    local_now = now_utc.astimezone(ZoneInfo(airport.timezone))
+    h = local_now.hour
+    for start, _ in sorted(airport.mvp_active_windows):
+        if start > h:
+            return f"{start:02d}:00"
+    first_start = min(s for s, _ in airport.mvp_active_windows)
+    return f"domani alle {first_start:02d}:00"
+
+
+def compute_pickup_point(trip_a: dict, trip_b: dict, airport: AirportConfig) -> dict:
+    """
+    Computes the geometric midpoint of the two trip origin coordinates and
+    resolves the nearest Zone from the airport registry for labelling.
+
+    The returned lat/lng are the real midpoint coordinates — the Zone is
+    used only as a human-readable label (zoneCode / zoneLabel / landmarks).
+    The Zone center is never used as the meeting coordinate.
+
+    # TODO MvpRouteApiEnabled: in futuro, snap del midpoint a un punto pedonale
+    # realmente raggiungibile via Places (evita midpoint che cadono in aree
+    # non accessibili a piedi — parchi recintati, tangenziali, isolati chiusi).
+    """
+    lat_a, lng_a = get_match_coords(trip_a, airport)
+    lat_b, lng_b = get_match_coords(trip_b, airport)
+    mid_lat = (lat_a + lat_b) / 2
+    mid_lng = (lng_a + lng_b) / 2
+
+    nearest_zone = min(airport.zones, key=lambda z: haversine_km(mid_lat, mid_lng, z.lat, z.lng))
+    return {
+        "lat": mid_lat,
+        "lng": mid_lng,
+        "zoneCode": nearest_zone.code,
+        "zoneLabel": nearest_zone.label,
+        "landmarks": list(nearest_zone.landmarks),
+    }
+
+
 # ── Find best match (v3 greedy — replaced by build_compatibility_matrix in v4) ──
 
 def find_best_match(query_trip: dict, query_user: dict) -> "MatchResult | None":
@@ -269,10 +350,15 @@ class MatchResult:
     candidate: dict[str, Any]
     score: float
 
-def build_match_item(trip_a: dict[str, Any], trip_b: dict[str, Any], score: float) -> dict[str, Any]:
+def build_match_item(
+    trip_a: dict[str, Any],
+    trip_b: dict[str, Any],
+    score: float,
+    pickup_point: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     match_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    return {
+    item: dict[str, Any] = {
         "pk": f"MATCH#{match_id}",
         "sk": "META",
         "matchId": match_id,
@@ -288,3 +374,6 @@ def build_match_item(trip_a: dict[str, Any], trip_b: dict[str, Any], score: floa
         "mode1": trip_a.get("mode"),
         "mode2": trip_b.get("mode"),
     }
+    if pickup_point:
+        item["pickupPoint"] = pickup_point
+    return item
