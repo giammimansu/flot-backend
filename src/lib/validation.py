@@ -130,6 +130,7 @@ class CreateTripRequest(BaseModel):
     originLat: float | None = Field(None, ge=-90, le=90)   # noqa: N815
     originLng: float | None = Field(None, ge=-180, le=180)  # noqa: N815
     originPlaceId: str | None = None                        # noqa: N815
+    originLabel: str | None = None                          # noqa: N815 — human-readable address label
     luggage: int = Field(default=0, ge=0, le=6)
     paxCount: int = Field(default=1, ge=1, le=4)  # noqa: N815
     mode: TripMode

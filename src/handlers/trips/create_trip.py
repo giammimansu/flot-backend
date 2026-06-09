@@ -132,7 +132,7 @@ def handler(event: dict, context) -> dict:
         "destPlaceId": req.destPlaceId,
         "destZone": destZone,
         # MVP TO_AIRPORT origin (departure address in city)
-        **({"originLat": Decimal(str(req.originLat)), "originLng": Decimal(str(req.originLng)), "originPlaceId": req.originPlaceId} if req.originLat is not None else {}),
+        **({"originLat": Decimal(str(req.originLat)), "originLng": Decimal(str(req.originLng)), "originPlaceId": req.originPlaceId, **({"originLabel": req.originLabel} if req.originLabel else {})} if req.originLat is not None else {}),
         "mode": req.mode.value,
         "flightNumber": req.flightNumber,
         "flightDate": req.flightDate,
