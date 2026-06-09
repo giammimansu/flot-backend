@@ -66,7 +66,7 @@ def _pick_local_time(block: dict) -> str:
 
 @logger.inject_lambda_context
 @tracer.capture_lambda_handler
-@app_handler(requires_auth=True)
+@app_handler(requires_auth=False)
 def handler(event: dict, context: LambdaContext) -> dict:
     params = event.get("queryStringParameters") or {}
     origin = event.get("_origin")

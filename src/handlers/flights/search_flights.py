@@ -114,7 +114,7 @@ _MOCK_FLIGHTS: list[FlightSuggestion] = [
 
 @logger.inject_lambda_context
 @tracer.capture_lambda_handler
-@app_handler(requires_auth=True)
+@app_handler(requires_auth=False)
 def handler(event: dict, context: LambdaContext) -> dict:
     params = event.get("queryStringParameters") or {}
     q = (params.get("q") or "").strip().upper().replace(" ", "")
