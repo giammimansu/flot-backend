@@ -1207,6 +1207,8 @@ Resources:
             RestApiId: !Ref FlotApi
             Path: /flights/lookup
             Method: GET
+            Auth:
+              Authorizer: NONE
 
   # ── Flight Search (UI autocomplete) ──────────────────────────────
 
@@ -1235,6 +1237,8 @@ Resources:
             RestApiId: !Ref FlotApi
             Path: /flights/search
             Method: GET
+            Auth:
+              Authorizer: NONE
 
   # ── Flight Slot Browse (UI "find your flight" sheet) ─────────────
 
@@ -1263,6 +1267,8 @@ Resources:
             RestApiId: !Ref FlotApi
             Path: /flights/slot
             Method: GET
+            Auth:
+              Authorizer: NONE
 
   # ── v4 — flight.delayed / flight.advanced handler ─────────────────
 
