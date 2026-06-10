@@ -129,6 +129,8 @@ def _fetch_aerodatabox(flight_number: str, flight_date: str, api_key: str) -> di
 
     arrival_time_utc = _pick_time(arrival, "utc")
     arrival_time_local = _pick_time(arrival, "local")
+    departure_time_utc = _pick_time(departure, "utc")
+    departure_time_local = _pick_time(departure, "local")
 
     if not arrival_time_utc:
         raise _NotFoundError()
@@ -153,6 +155,8 @@ def _fetch_aerodatabox(flight_number: str, flight_date: str, api_key: str) -> di
         "flightNumber": flight_number,
         "arrivalTimeLocal": arrival_time_local,
         "arrivalTimeUtc": arrival_time_utc,
+        "departureTimeLocal": departure_time_local,
+        "departureTimeUtc": departure_time_utc,
         "status": flight.get("status", "Unknown"),
         "delayMinutes": _delay_minutes(arrival),
         "origin": departure.get("airport", {}).get("iata"),
@@ -176,10 +180,12 @@ def _mock_response(flight_number: str, flight_date: str) -> dict:
         "flightNumber": flight_number,
         "arrivalTimeLocal": f"{flight_date}T12:00:00",
         "arrivalTimeUtc": f"{flight_date}T11:00:00Z",
+        "departureTimeLocal": f"{flight_date}T09:00:00",
+        "departureTimeUtc": f"{flight_date}T08:00:00Z",
         "status": "Scheduled",
         "delayMinutes": None,
-        "origin": "FCO",
-        "destination": "MXP",
+        "origin": "MXP",
+        "destination": "FCO",
         "airline": {"iata": prefix, "name": airline_name, "nameIT": airline_name},
     }
 
