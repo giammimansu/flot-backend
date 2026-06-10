@@ -56,6 +56,17 @@ Parameters:
       - 'true'
       - 'false'
 
+  # Flight data source for the /flights/* lookup proxies. Default 'mock' (safe:
+  # no upstream call, no SSM/API key needed). Real AeroDataBox data is an
+  # explicit per-stage opt-in via samconfig parameter_overrides. Prod stays
+  # 'mock' until a FlightTrackerProvider=aerodatabox line is added to [prod].
+  FlightTrackerProvider:
+    Type: String
+    Default: 'mock'
+    AllowedValues:
+      - 'mock'
+      - 'aerodatabox'
+
   # ── MVP Feature Flags ─────────────────────────────────────────────
   # All default to 'false' (full v4 behaviour). Set to 'true' in dev
   # samconfig.toml to activate the MVP restricted configuration.
@@ -1192,7 +1203,7 @@ Resources:
       Environment:
         Variables:
           AERODATABOX_SSM_KEY: !Sub "/flot/${Stage}/aerodatabox-key"
-          FLIGHT_TRACKER_PROVIDER: aerodatabox
+          FLIGHT_TRACKER_PROVIDER: !Ref FlightTrackerProvider
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref FlotTable
@@ -1224,7 +1235,7 @@ Resources:
       Environment:
         Variables:
           AERODATABOX_SSM_KEY: !Sub "/flot/${Stage}/aerodatabox-key"
-          FLIGHT_TRACKER_PROVIDER: aerodatabox
+          FLIGHT_TRACKER_PROVIDER: !Ref FlightTrackerProvider
       Policies:
         - Statement:
             Effect: Allow
@@ -1254,7 +1265,7 @@ Resources:
       Environment:
         Variables:
           AERODATABOX_SSM_KEY: !Sub "/flot/${Stage}/aerodatabox-key"
-          FLIGHT_TRACKER_PROVIDER: aerodatabox
+          FLIGHT_TRACKER_PROVIDER: !Ref FlightTrackerProvider
       Policies:
         - Statement:
             Effect: Allow
