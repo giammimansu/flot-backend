@@ -93,6 +93,11 @@ class AirportConfig:
     max_origin_distance_km: float = 2.0
     # pickup_radius_m: gate — midpoint must be within this radius (metres) of each origin.
     pickup_radius_m: int = 750
+    # pickup_buffer_minutes: minutes subtracted from the earliest flight departure to
+    # produce the pick-up meeting time. Covers airport processing + taxi transit
+    # city→airport. OUTPUT ONLY — never enters scoring/gates/threshold.
+    # Opening value, to be tuned on real ride/traffic data.
+    pickup_buffer_minutes: int = 0
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -145,6 +150,8 @@ AIRPORTS: dict[str, AirportConfig] = {
         mvp_active_windows=[(6, 9), (14, 17), (20, 23)],
         max_origin_distance_km=2.0,
         pickup_radius_m=750,
+        # 180min = ~2h airport buffer + ~1h taxi Milano→MXP. Opening value, tune on data.
+        pickup_buffer_minutes=180,
     ),
     # ── P2 #12 — Second real airport: Roma Fiumicino ─────────────────
     # Validates that nothing is hardcoded outside this registry. Same shape

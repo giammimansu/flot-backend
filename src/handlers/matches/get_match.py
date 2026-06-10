@@ -68,4 +68,6 @@ def _to_response(match: dict, trip1: dict, trip2: dict) -> dict:
     }
     if match.get("pickupPoint"):
         response["pickupPoint"] = match["pickupPoint"]
+    if match.get("pickupTime"):
+        response["pickupTime"] = match["pickupTime"]
     return response

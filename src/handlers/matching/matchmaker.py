@@ -24,6 +24,7 @@ from lib.matching import (
     compute_dynamic_threshold,
     compute_match_score,
     compute_pickup_point,
+    compute_pickup_time,
     estimate_detour_minutes,
     apply_detour_penalty,
     get_match_coords,
@@ -180,7 +181,10 @@ def _promote_tentative_to_match(
     Returns True if match was created, False if skipped (already processed).
     """
     pickup = compute_pickup_point(trip_a, trip_b, airport) if _MVP_PICKUP_SIMPLE_MODE else None
-    match_item = build_match_item(trip_a, trip_b, float(tm.get("score", 0)), pickup_point=pickup)
+    pickup_time = compute_pickup_time(trip_a, trip_b, airport) if _MVP_PICKUP_SIMPLE_MODE else None
+    match_item = build_match_item(
+        trip_a, trip_b, float(tm.get("score", 0)), pickup_point=pickup, pickup_time=pickup_time
+    )
     table_name = os.environ["TABLE_NAME"]
 
     # Keep gsi5pk = "{airport}#matched" so dissolve/expire checker can find these
@@ -409,7 +413,8 @@ def _create_direct_match(
 ) -> None:
     """Creates a definitive match directly (no TentativeMatch exists). Used when already past lock window."""
     table_name = os.environ["TABLE_NAME"]
-    match_item = build_match_item(trip_a, trip_b, score, pickup_point=pickup_point)
+    pickup_time = compute_pickup_time(trip_a, trip_b, airport) if _MVP_PICKUP_SIMPLE_MODE else None
+    match_item = build_match_item(trip_a, trip_b, score, pickup_point=pickup_point, pickup_time=pickup_time)
 
     # Keep gsi5pk = "{airport}#matched" so dissolve/expire checker can find these
     # via GSI5 (gsi5sk = flightTime). Drop gsi1pk to remove from the active pool index.

@@ -8,6 +8,7 @@ from lib.matching import (
     compute_dynamic_threshold,
     compute_match_score,
     compute_pickup_point,
+    compute_pickup_time,
     distance_score,
     estimate_detour_minutes,
     apply_detour_penalty,
@@ -378,3 +379,61 @@ def test_pickup_point_valid_pair():
     radius_km = airport.pickup_radius_m / 1000.0
     assert haversine_km(pickup["lat"], pickup["lng"], trip_a["originLat"], trip_a["originLng"]) <= radius_km
     assert haversine_km(pickup["lat"], pickup["lng"], trip_b["originLat"], trip_b["originLng"]) <= radius_km
+
+
+# ── MVP — compute_pickup_time (buffer ritrovo) ─────────────────────────
+
+def _trip_with_flight(trip_id, flight_time):
+    return {
+        "tripId": trip_id,
+        "direction": "FROM_MILAN",
+        "originLat": 45.4642, "originLng": 9.1900,
+        "destLat": 45.6301, "destLng": 8.7231,  # MXP
+        "flightTime": flight_time,
+    }
+
+
+def test_pickup_time_uses_earliest_departure():
+    """pickupTime = volo piu' presto − buffer. 14:00 e 14:30 → 14:00 − 180min = 11:00."""
+    airport = mock_mxp_airport()  # pickup_buffer_minutes = 180
+    trip_a = _trip_with_flight("a", "2026-06-01T14:00:00Z")
+    trip_b = _trip_with_flight("b", "2026-06-01T14:30:00Z")
+    assert compute_pickup_time(trip_a, trip_b, airport) == "2026-06-01T11:00:00Z"
+    # Simmetrico: l'ordine degli argomenti non cambia il risultato (sempre il piu' presto).
+    assert compute_pickup_time(trip_b, trip_a, airport) == "2026-06-01T11:00:00Z"
+
+
+def test_pickup_time_not_latest_not_average():
+    """Deve usare il min, non il max (11:30) ne' la media (11:15)."""
+    airport = mock_mxp_airport()
+    trip_a = _trip_with_flight("a", "2026-06-01T14:00:00Z")
+    trip_b = _trip_with_flight("b", "2026-06-01T14:30:00Z")
+    pickup_time = compute_pickup_time(trip_a, trip_b, airport)
+    assert pickup_time != "2026-06-01T11:30:00Z"  # max − buffer
+    assert pickup_time != "2026-06-01T11:15:00Z"  # media − buffer
+
+
+def test_pickup_time_none_when_flight_missing():
+    airport = mock_mxp_airport()
+    trip_a = _trip_with_flight("a", "2026-06-01T14:00:00Z")
+    trip_b = {"tripId": "b", "direction": "FROM_MILAN",
+              "originLat": 45.46, "originLng": 9.19, "destLat": 45.63, "destLng": 8.72}
+    assert compute_pickup_time(trip_a, trip_b, airport) is None
+
+
+def test_pickup_buffer_changes_time_not_score():
+    """Il buffer e' OUTPUT: cambia pickupTime, NON lo score della coppia."""
+    import dataclasses
+    base = mock_mxp_airport()
+    airport_180 = dataclasses.replace(base, pickup_buffer_minutes=180)
+    airport_60 = dataclasses.replace(base, pickup_buffer_minutes=60)
+
+    trip_a = _trip_with_flight("a", "2026-06-01T14:00:00Z")
+    trip_b = _trip_with_flight("b", "2026-06-01T14:00:00Z")
+
+    assert compute_pickup_time(trip_a, trip_b, airport_180) == "2026-06-01T11:00:00Z"
+    assert compute_pickup_time(trip_a, trip_b, airport_60) == "2026-06-01T13:00:00Z"
+
+    score_180 = compute_match_score(trip_a, trip_b, {}, {}, mode="scheduled", airport=airport_180)
+    score_60 = compute_match_score(trip_a, trip_b, {}, {}, mode="scheduled", airport=airport_60)
+    assert score_180 == score_60  # scoring indipendente dal buffer

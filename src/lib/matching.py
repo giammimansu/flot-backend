@@ -314,6 +314,28 @@ def compute_pickup_point(trip_a: dict, trip_b: dict, airport: AirportConfig) -> 
     }
 
 
+def compute_pickup_time(trip_a: dict, trip_b: dict, airport: AirportConfig) -> str | None:
+    """
+    Pick-up meeting time = earliest departure − airport.pickup_buffer_minutes.
+
+    Uses the EARLIEST of the two flightTimes (min): the trip departing first
+    dictates the meeting so nobody misses their flight. Output ISO 8601 UTC.
+    Returns None if either flightTime is missing.
+
+    OUTPUT ONLY — independent of compute_match_score / time_score / distance
+    gates / dynamic threshold. The buffer never influences matching.
+    """
+    ft_a = trip_a.get("flightTime")
+    ft_b = trip_b.get("flightTime")
+    if not ft_a or not ft_b:
+        return None
+    dt_a = datetime.fromisoformat(ft_a.replace("Z", "+00:00"))
+    dt_b = datetime.fromisoformat(ft_b.replace("Z", "+00:00"))
+    earliest = min(dt_a, dt_b)
+    pickup = earliest - timedelta(minutes=airport.pickup_buffer_minutes)
+    return pickup.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 # ── Find best match (v3 greedy — replaced by build_compatibility_matrix in v4) ──
 
 def find_best_match(query_trip: dict, query_user: dict) -> "MatchResult | None":
@@ -355,6 +377,7 @@ def build_match_item(
     trip_b: dict[str, Any],
     score: float,
     pickup_point: dict[str, Any] | None = None,
+    pickup_time: str | None = None,
 ) -> dict[str, Any]:
     match_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -376,4 +399,6 @@ def build_match_item(
     }
     if pickup_point:
         item["pickupPoint"] = pickup_point
+    if pickup_time:
+        item["pickupTime"] = pickup_time
     return item
