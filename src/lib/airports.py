@@ -70,6 +70,7 @@ class AirportConfig:
     max_detour_minutes: int = 15
     flight_tracker_provider: str = "mock"  # "aviation_edge" | "aerodatabox" | "mock"
     flight_tracker_fallback_provider: str = ""  # empty = no fallback
+    places_provider: str = "google"  # "google" | "mock"
 
     # Sprint 5 — Payment Deadlock Resolution
     unlock_timeout_minutes: int = 120

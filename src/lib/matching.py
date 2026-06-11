@@ -9,6 +9,7 @@ from aws_lambda_powertools import Logger
 
 from . import dynamo
 from .airports import get_airport, AirportConfig
+from .places import snap_to_nearest_address
 
 logger = Logger(child=True)
 
@@ -291,13 +292,10 @@ def compute_pickup_point(trip_a: dict, trip_b: dict, airport: AirportConfig) -> 
     Computes the geometric midpoint of the two trip origin coordinates and
     resolves the nearest Zone from the airport registry for labelling.
 
-    The returned lat/lng are the real midpoint coordinates — the Zone is
-    used only as a human-readable label (zoneCode / zoneLabel / landmarks).
-    The Zone center is never used as the meeting coordinate.
+    The raw midpoint is then snapped to the nearest walkable address via Places
+    (DONE — snap via lib.places). Falls back to raw_midpoint on any Places failure.
 
-    # TODO MvpRouteApiEnabled: in futuro, snap del midpoint a un punto pedonale
-    # realmente raggiungibile via Places (evita midpoint che cadono in aree
-    # non accessibili a piedi — parchi recintati, tangenziali, isolati chiusi).
+    The Zone is used only for human-readable labels; its center is never the meeting coordinate.
     """
     lat_a, lng_a = get_match_coords(trip_a, airport)
     lat_b, lng_b = get_match_coords(trip_b, airport)
@@ -305,9 +303,25 @@ def compute_pickup_point(trip_a: dict, trip_b: dict, airport: AirportConfig) -> 
     mid_lng = (lng_a + lng_b) / 2
 
     nearest_zone = min(airport.zones, key=lambda z: haversine_km(mid_lat, mid_lng, z.lat, z.lng))
+
+    snapped = snap_to_nearest_address(mid_lat, mid_lng, airport)
+    if snapped:
+        out_lat, out_lng = snapped["lat"], snapped["lng"]
+        address = snapped["address"]
+        place_id = snapped["placeId"]
+        source = "places"
+    else:
+        out_lat, out_lng = mid_lat, mid_lng
+        address = None
+        place_id = None
+        source = "raw_midpoint"
+
     return {
-        "lat": mid_lat,
-        "lng": mid_lng,
+        "lat": out_lat,
+        "lng": out_lng,
+        "address": address,
+        "placeId": place_id,
+        "source": source,
         "zoneCode": nearest_zone.code,
         "zoneLabel": nearest_zone.label,
         "landmarks": list(nearest_zone.landmarks),

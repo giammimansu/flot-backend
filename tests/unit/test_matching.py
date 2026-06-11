@@ -2,7 +2,9 @@
 
 import pytest
 from datetime import datetime, timezone, timedelta
+from unittest.mock import patch
 from lib.matching import (
+    build_match_item,
     can_match_direction,
     can_match_modes,
     compute_dynamic_threshold,
@@ -361,24 +363,93 @@ def test_pickup_point_gate2_midpoint_too_far():
 
 
 def test_pickup_point_valid_pair():
-    """Valid pair: origins close, midpoint within radius, zone label populated."""
+    """Valid pair: snap mocked to None → raw_midpoint, zone label populated."""
     airport = mock_mxp_airport()
-    # Two origins near Duomo — ~0.5 km apart
     trip_a = _make_to_airport_trip("a", 45.4642, 9.1900)  # Duomo
     trip_b = _make_to_airport_trip("b", 45.4680, 9.1950)  # ~500 m
-    pickup = compute_pickup_point(trip_a, trip_b, airport)
+
+    with patch("lib.matching.snap_to_nearest_address", return_value=None):
+        pickup = compute_pickup_point(trip_a, trip_b, airport)
 
     assert "lat" in pickup and "lng" in pickup
-    # Coordinates are the real midpoint, not a zone center
-    assert pickup["lat"] == pytest.approx((45.4642 + 45.4680) / 2)
-    assert pickup["lng"] == pytest.approx((9.1900 + 9.1950) / 2)
-    # Zone label populated from nearest zone
+    expected_lat = (45.4642 + 45.4680) / 2
+    expected_lng = (9.1900 + 9.1950) / 2
+    assert pickup["lat"] == pytest.approx(expected_lat)
+    assert pickup["lng"] == pytest.approx(expected_lng)
+    assert pickup["source"] == "raw_midpoint"
+    assert pickup["address"] is None
+    assert pickup["placeId"] is None
     assert pickup["zoneCode"] in {z.code for z in airport.zones}
     assert pickup["zoneLabel"]
-    # Within 750 m of both origins
+    # Gate: midpoint (raw) within 750 m of both origins
     radius_km = airport.pickup_radius_m / 1000.0
     assert haversine_km(pickup["lat"], pickup["lng"], trip_a["originLat"], trip_a["originLng"]) <= radius_km
     assert haversine_km(pickup["lat"], pickup["lng"], trip_b["originLat"], trip_b["originLng"]) <= radius_km
+
+
+def test_pickup_point_snap_success():
+    """snap returns address → source==places, lat/lng from snapped point."""
+    airport = mock_mxp_airport()
+    trip_a = _make_to_airport_trip("a", 45.4642, 9.1900)
+    trip_b = _make_to_airport_trip("b", 45.4680, 9.1950)
+    snapped = {"lat": 45.4655, "lng": 9.1922, "address": "Via Torino, 1", "placeId": "pid_xyz"}
+
+    with patch("lib.matching.snap_to_nearest_address", return_value=snapped):
+        pickup = compute_pickup_point(trip_a, trip_b, airport)
+
+    assert pickup["source"] == "places"
+    assert pickup["lat"] == pytest.approx(45.4655)
+    assert pickup["lng"] == pytest.approx(9.1922)
+    assert pickup["address"] == "Via Torino, 1"
+    assert pickup["placeId"] == "pid_xyz"
+    assert pickup["zoneCode"] in {z.code for z in airport.zones}
+
+
+def test_pickup_point_snap_failure_fallback():
+    """snap returns None → source==raw_midpoint, lat/lng = geometric midpoint."""
+    airport = mock_mxp_airport()
+    trip_a = _make_to_airport_trip("a", 45.4642, 9.1900)
+    trip_b = _make_to_airport_trip("b", 45.4680, 9.1950)
+
+    with patch("lib.matching.snap_to_nearest_address", return_value=None):
+        pickup = compute_pickup_point(trip_a, trip_b, airport)
+
+    assert pickup["source"] == "raw_midpoint"
+    assert pickup["lat"] == pytest.approx((45.4642 + 45.4680) / 2)
+    assert pickup["lng"] == pytest.approx((9.1900 + 9.1950) / 2)
+    assert pickup["address"] is None
+    assert pickup["placeId"] is None
+
+
+def test_build_match_item_propagates_pickup_fields():
+    """build_match_item stores address/placeId/source from pickup_point."""
+    trip_a = {
+        "tripId": "t1", "userId": "u1", "airportCode": "MXP",
+        "mode": "scheduled",
+    }
+    trip_b = {
+        "tripId": "t2", "userId": "u2", "airportCode": "MXP",
+        "mode": "scheduled",
+    }
+    pickup = {
+        "lat": 45.4655, "lng": 9.1922,
+        "address": "Via Torino, 1", "placeId": "pid_xyz",
+        "source": "places",
+        "zoneCode": "centro", "zoneLabel": "Centro", "landmarks": ["Duomo"],
+    }
+    item = build_match_item(trip_a, trip_b, score=0.8, pickup_point=pickup)
+    pp = item["pickupPoint"]
+    assert pp["source"] == "places"
+    assert pp["address"] == "Via Torino, 1"
+    assert pp["placeId"] == "pid_xyz"
+
+
+def test_build_match_item_no_pickup_point():
+    """pickup_point=None → no pickupPoint key in item."""
+    trip_a = {"tripId": "t1", "userId": "u1", "airportCode": "MXP", "mode": "scheduled"}
+    trip_b = {"tripId": "t2", "userId": "u2", "airportCode": "MXP", "mode": "scheduled"}
+    item = build_match_item(trip_a, trip_b, score=0.5)
+    assert "pickupPoint" not in item
 
 
 # ── MVP — compute_pickup_time (buffer ritrovo) ─────────────────────────
