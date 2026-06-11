@@ -13,7 +13,7 @@ from aws_lambda_powertools import Logger, Tracer
 from lib import dynamo
 from lib.airports import get_airport
 from lib.eventbridge import put_event
-from lib.matching import build_match_item, find_best_match
+from lib.matching import build_match_item, compute_pickup_point, compute_pickup_time, find_best_match
 
 logger = Logger()
 tracer = Tracer()
@@ -47,7 +47,10 @@ def handler(event: dict, context) -> None:
         return
 
     candidate = result.candidate
-    match_item = build_match_item(trip, candidate, result.score)
+    airport = get_airport(trip["airportCode"])
+    pickup_point = compute_pickup_point(trip, candidate, airport)
+    pickup_time = compute_pickup_time(trip, candidate, airport)
+    match_item = build_match_item(trip, candidate, result.score, pickup_point=pickup_point, pickup_time=pickup_time)
 
     table = dynamo.get_table().name
     try:

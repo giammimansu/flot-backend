@@ -627,7 +627,7 @@ def process_airport(airport: AirportConfig) -> int:
         best_match = find_best_match(query_trip=trip, query_user=c_user)
         if best_match:
             candidate = best_match.candidate
-            create_match(trip, candidate, best_match.score)
+            create_match(trip, candidate, best_match.score, airport=airport)
             matched_ids.add(trip["pk"])
             matched_ids.add(candidate["pk"])
             matches_created += 1
@@ -643,8 +643,10 @@ def expire_trip(trip: dict) -> None:
     put_event("trip.expired", {"tripId": trip["tripId"], "airportCode": trip.get("airportCode")})
 
 
-def create_match(trip_a: dict, trip_b: dict, score: float) -> None:
-    match_item = build_match_item(trip_a, trip_b, score)
+def create_match(trip_a: dict, trip_b: dict, score: float, airport: "AirportConfig | None" = None) -> None:
+    pickup_point = compute_pickup_point(trip_a, trip_b, airport) if airport else None
+    pickup_time = compute_pickup_time(trip_a, trip_b, airport) if airport else None
+    match_item = build_match_item(trip_a, trip_b, score, pickup_point=pickup_point, pickup_time=pickup_time)
     table_name = os.environ["TABLE_NAME"]
 
     for t in [trip_a, trip_b]:
