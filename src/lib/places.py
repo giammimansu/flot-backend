@@ -3,6 +3,9 @@
 Snaps a raw coordinate to the nearest walkable address via Google Places
 Nearby Search (or a mock provider for tests/dev).
 
+API key read at runtime from SSM (GOOGLE_PLACES_API_KEY_PARAM env var),
+cached in-memory across warm invocations. Pattern mirrors flight_lookup.py.
+
 Never raises — any failure returns None and logs a warning.
 """
 from __future__ import annotations
@@ -23,6 +26,28 @@ logger = Logger(child=True)
 _NEARBY_SEARCH_URL = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
 _TIMEOUT_SEC = 2
 
+_ssm_client = None
+_api_key_cache: str | None = None
+
+
+def _get_api_key() -> str:
+    global _ssm_client, _api_key_cache
+    if _api_key_cache:
+        return _api_key_cache
+    param_name = os.environ.get("GOOGLE_PLACES_API_KEY_PARAM", "")
+    if not param_name:
+        return ""
+    try:
+        import boto3
+        if _ssm_client is None:
+            _ssm_client = boto3.client("ssm")
+        resp = _ssm_client.get_parameter(Name=param_name, WithDecryption=True)
+        _api_key_cache = resp["Parameter"]["Value"]
+        return _api_key_cache
+    except Exception as exc:
+        logger.warning("places_ssm_fetch_failed", reason=str(exc))
+        return ""
+
 
 def snap_to_nearest_address(lat: float, lng: float, airport: "AirportConfig") -> dict | None:
     """Return nearest walkable address to (lat, lng), or None on any failure."""
@@ -40,7 +65,7 @@ def snap_to_nearest_address(lat: float, lng: float, airport: "AirportConfig") ->
 
 
 def _google_nearby_fetch(lat: float, lng: float) -> dict | None:
-    api_key = os.environ.get("GOOGLE_PLACES_API_KEY", "")
+    api_key = _get_api_key()
     if not api_key:
         logger.warning("places_snap_failed", reason="missing_api_key")
         return None

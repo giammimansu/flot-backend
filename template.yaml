@@ -1169,7 +1169,7 @@ Resources:
         Variables:
           FLIGHT_TRACKER_PROVIDER: !If [IsDev, "mock", !Sub "{{resolve:ssm:/flot/${Stage}/flight-tracker-provider}}"]
           FLIGHT_TRACKER_API_KEY: !If [IsDev, "", !Sub "{{resolve:ssm:/flot/${Stage}/flight-tracker-key}}"]
-          GOOGLE_PLACES_API_KEY: !Sub "{{resolve:ssm-secure:/flot/${Stage}/places-key}}"
+          GOOGLE_PLACES_API_KEY_PARAM: !Sub "/flot/${Stage}/places-key"
           TRACKING_WINDOW_HOURS: "12"
           EVENT_BUS_NAME: !Ref FlotEventBus
       Policies:
@@ -1177,6 +1177,10 @@ Resources:
             TableName: !Ref FlotTable
         - EventBridgePutEventsPolicy:
             EventBusName: !Ref FlotEventBus
+        - Statement:
+            Effect: Allow
+            Action: ssm:GetParameter
+            Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/flot/${Stage}/places-key"
       Events:
         ScheduleEvent:
           Type: ScheduleV2

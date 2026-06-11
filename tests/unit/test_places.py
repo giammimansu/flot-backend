@@ -45,7 +45,7 @@ def test_google_snap_success():
     mock_resp.__enter__ = lambda s: s
     mock_resp.__exit__ = MagicMock(return_value=False)
 
-    with patch.dict(os.environ, {"GOOGLE_PLACES_API_KEY": "test-key"}):
+    with patch("lib.places._get_api_key", return_value="test-key"):
         with patch("urllib.request.urlopen", return_value=mock_resp):
             result = snap_to_nearest_address(45.4642, 9.1900, airport)
 
@@ -63,7 +63,7 @@ def test_google_snap_no_results_returns_none():
     mock_resp.__enter__ = lambda s: s
     mock_resp.__exit__ = MagicMock(return_value=False)
 
-    with patch.dict(os.environ, {"GOOGLE_PLACES_API_KEY": "test-key"}):
+    with patch("lib.places._get_api_key", return_value="test-key"):
         with patch("urllib.request.urlopen", return_value=mock_resp):
             result = snap_to_nearest_address(45.4642, 9.1900, airport)
 
@@ -74,8 +74,7 @@ def test_google_snap_no_results_returns_none():
 
 def test_timeout_returns_none():
     airport = _mock_airport(provider="google")
-    import socket
-    with patch.dict(os.environ, {"GOOGLE_PLACES_API_KEY": "test-key"}):
+    with patch("lib.places._get_api_key", return_value="test-key"):
         with patch("urllib.request.urlopen", side_effect=TimeoutError("timed out")):
             result = snap_to_nearest_address(45.4642, 9.1900, airport)
     assert result is None
@@ -83,7 +82,7 @@ def test_timeout_returns_none():
 
 def test_http_error_returns_none():
     airport = _mock_airport(provider="google")
-    with patch.dict(os.environ, {"GOOGLE_PLACES_API_KEY": "test-key"}):
+    with patch("lib.places._get_api_key", return_value="test-key"):
         with patch("urllib.request.urlopen", side_effect=OSError("connection refused")):
             result = snap_to_nearest_address(45.4642, 9.1900, airport)
     assert result is None
@@ -91,8 +90,15 @@ def test_http_error_returns_none():
 
 def test_missing_api_key_returns_none():
     airport = _mock_airport(provider="google")
-    env = {k: v for k, v in os.environ.items() if k != "GOOGLE_PLACES_API_KEY"}
-    with patch.dict(os.environ, env, clear=True):
+    with patch("lib.places._get_api_key", return_value=""):
+        result = snap_to_nearest_address(45.4642, 9.1900, airport)
+    assert result is None
+
+
+def test_ssm_fetch_failure_returns_none():
+    """SSM call fails at runtime → _get_api_key returns "" → snap degrades to raw_midpoint."""
+    airport = _mock_airport(provider="google")
+    with patch("lib.places._get_api_key", return_value=""):
         result = snap_to_nearest_address(45.4642, 9.1900, airport)
     assert result is None
 
@@ -107,13 +113,12 @@ def test_unknown_provider_returns_none():
 
 def test_returns_first_result_regardless_of_distance():
     airport = _mock_airport(provider="google")
-    # Return a point far from input — snap_to_nearest_address still returns it
     mock_resp = MagicMock()
     mock_resp.read.return_value = _places_response(45.5000, 9.2500, "Far Place", "far_id")
     mock_resp.__enter__ = lambda s: s
     mock_resp.__exit__ = MagicMock(return_value=False)
 
-    with patch.dict(os.environ, {"GOOGLE_PLACES_API_KEY": "test-key"}):
+    with patch("lib.places._get_api_key", return_value="test-key"):
         with patch("urllib.request.urlopen", return_value=mock_resp):
             result = snap_to_nearest_address(45.4642, 9.1900, airport)
 
