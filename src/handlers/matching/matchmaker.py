@@ -29,7 +29,6 @@ from lib.matching import (
     apply_detour_penalty,
     get_match_coords,
     haversine_km,
-    is_in_active_window,
 )
 from lib.eventbridge import put_event
 
@@ -40,7 +39,6 @@ metrics = Metrics()
 LOCK_HOURS_BEFORE = int(os.environ.get("LOCK_HOURS_BEFORE", "3"))
 
 _MVP_SINGLE_ROUTE_MODE = os.environ.get("MVP_SINGLE_ROUTE_MODE", "false") == "true"
-_MVP_TIME_WINDOWS_MODE = os.environ.get("MVP_TIME_WINDOWS_MODE", "false") == "true"
 _MVP_SHADOW_POOL_OFF = os.environ.get("MVP_SHADOW_POOL_OFF", "false") == "true"
 _MVP_PICKUP_SIMPLE_MODE = os.environ.get("MVP_PICKUP_SIMPLE_MODE", "false") == "true"
 
@@ -67,11 +65,6 @@ def handler(event: dict, context) -> dict:
 
 
 def process_airport_v4(airport: AirportConfig, now: datetime) -> tuple[int, int]:
-    if _MVP_TIME_WINDOWS_MODE and airport.mvp_active_windows:
-        if not is_in_active_window(airport, now):
-            logger.info("mvp_time_window_skip", airport=airport.code)
-            return 0, 0
-
     expire_stale_trips(airport.code, now)
 
     if _MVP_SHADOW_POOL_OFF:

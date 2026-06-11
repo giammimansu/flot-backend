@@ -24,7 +24,6 @@ from lib.validation import CreateTripRequest, TripMode
 from lib.zones import coords_to_zone, is_valid_direction, is_valid_terminal, is_valid_zone
 
 _MVP_SINGLE_ROUTE_MODE = os.environ.get("MVP_SINGLE_ROUTE_MODE", "false") == "true"
-_MVP_TIME_WINDOWS_MODE = os.environ.get("MVP_TIME_WINDOWS_MODE", "false") == "true"
 
 logger = Logger()
 tracer = Tracer()
@@ -105,6 +104,13 @@ def handler(event: dict, context) -> dict:
             flight_dt = datetime.fromisoformat(resolved_flight_time.replace("Z", "+00:00"))
             tracking_pending = True
 
+    if req.mode == TripMode.SCHEDULED and not is_in_active_window(airport, flight_dt):
+        nxt = next_active_window_label(airport, flight_dt)
+        raise AppError(
+            400,
+            f"Per l'MVP puoi prenotare solo voli nelle fasce attive. Prossima fascia utile: {nxt}.",
+        )
+
     if req.mode == TripMode.LIVE:
         expires_at = now + timedelta(seconds=airport.search_timeout_sec)
     else:
@@ -157,15 +163,6 @@ def handler(event: dict, context) -> dict:
 
     dynamo.put_item(trip_item)
     put_event("trip.created", {"tripId": trip_id, "mode": req.mode.value})
-
-    if _MVP_TIME_WINDOWS_MODE and airport.mvp_active_windows and not is_in_active_window(airport, now):
-        next_window = next_active_window_label(airport, now)
-        dynamo.save_notification(user_id, {
-            "type": "trip_queued",
-            "title": "Viaggio registrato",
-            "body": f"Il match verrà cercato nella prossima fascia oraria: {next_window}",
-            "tripId": trip_id,
-        })
 
     return created(
         {

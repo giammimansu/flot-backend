@@ -31,7 +31,6 @@ Globals:
         MATCH_NOTIFICATION_TEMPLATE: !Ref MatchNotificationTemplate
         FIREBASE_CREDENTIALS_SECRET_ARN: !Ref FirebaseCredentialsSecretArn
         MVP_SINGLE_ROUTE_MODE: !Ref MvpSingleRouteMode
-        MVP_TIME_WINDOWS_MODE: !Ref MvpTimeWindowsMode
         MVP_SHADOW_POOL_OFF: !Ref MvpShadowPoolOff
         MVP_FLIGHT_TRACKER_ENABLED: !Ref MvpFlightTrackerEnabled
         MVP_PICKUP_SIMPLE_MODE: !Ref MvpPickupSimpleMode
@@ -77,12 +76,6 @@ Parameters:
     Default: 'false'
     AllowedValues: ['true', 'false']
     Description: Restrict trip creation to MXP TO_AIRPORT direction only.
-
-  MvpTimeWindowsMode:
-    Type: String
-    Default: 'false'
-    AllowedValues: ['true', 'false']
-    Description: Gate matchmaker to airport-configured active time windows.
 
   MvpShadowPoolOff:
     Type: String

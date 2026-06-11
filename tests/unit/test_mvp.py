@@ -56,7 +56,8 @@ def _make_to_airport_trip(trip_id, origin_lat=45.4642, origin_lng=9.1900,
 
 
 def _build_event(airport_code="MXP", direction="FROM_MILAN",
-                 origin_lat=45.4642, origin_lng=9.1900, origin_place_id="ChIJ_MXP"):
+                 origin_lat=45.4642, origin_lng=9.1900, origin_place_id="ChIJ_MXP",
+                 flight_time="2026-06-20T05:00:00Z", mode="scheduled"):
     import json
     body: dict = {
         "airportCode": airport_code,
@@ -66,10 +67,10 @@ def _build_event(airport_code="MXP", direction="FROM_MILAN",
         "destLat": 45.4642,
         "destLng": 9.1900,
         "destPlaceId": "ChIJduomo",
-        "mode": "scheduled",
+        "mode": mode,
         "flightNumber": "AZ0001",
         "flightDate": "2026-06-20",
-        "flightTime": "2026-06-20T08:00:00Z",
+        "flightTime": flight_time,
         "luggage": 1,
         "paxCount": 1,
     }
@@ -91,11 +92,10 @@ def _build_event(airport_code="MXP", direction="FROM_MILAN",
 
 # ── MvpSingleRouteMode — create_trip ─────────────────────────────────
 
-def _call_create_trip(event, single_route_mode: bool, time_windows_mode: bool = False):
+def _call_create_trip(event, single_route_mode: bool):
     """Call create_trip.handler with module-level flags patched directly."""
     import handlers.trips.create_trip as ct
     ct._MVP_SINGLE_ROUTE_MODE = single_route_mode
-    ct._MVP_TIME_WINDOWS_MODE = time_windows_mode
     with patch("handlers.trips.create_trip.dynamo.get_item", return_value={}), \
          patch("handlers.trips.create_trip.dynamo.put_item"), \
          patch("handlers.trips.create_trip.put_event"), \
@@ -155,62 +155,69 @@ class TestMvpSingleRouteMode:
         assert result["statusCode"] == 201
 
 
-# ── MvpTimeWindowsMode — matchmaker ──────────────────────────────────
+# ── MvpTimeWindowsMode — create_trip gate on flightTime ──────────────
 
 class TestMvpTimeWindowsMode:
-    """Matchmaker time-window gate under MvpTimeWindowsMode."""
+    """create_trip rejects SCHEDULED trips whose flightTime falls outside mvp_active_windows."""
 
-    def test_matchmaker_skips_airport_outside_window(self):
-        """MvpTimeWindowsMode=true → process_airport_v4 returns (0,0) outside window."""
+    def test_flight_inside_window_accepted(self):
+        """MXP flightTime 07:00 Rome (05:00 UTC) → inside window (6–9) → 201."""
+        # 2026-06-20T05:00:00Z = 07:00 Rome summer time, inside window (6,9)
+        event = _build_event(airport_code="MXP", direction="FROM_MILAN",
+                             origin_lat=45.4642, origin_lng=9.1900, origin_place_id="ChIJduomo",
+                             flight_time="2026-06-20T05:00:00Z", mode="scheduled")
+        result = _call_create_trip(event, single_route_mode=False)
+        assert result["statusCode"] == 201
+
+    def test_flight_outside_window_rejected(self):
+        """MXP flightTime 12:00 Rome (10:00 UTC) → gap (9–14) → 400 with next window hint."""
+        import json
+        # 2026-06-20T10:00:00Z = 12:00 Rome summer time, gap between (9,14)
+        event = _build_event(airport_code="MXP", direction="FROM_MILAN",
+                             origin_lat=45.4642, origin_lng=9.1900, origin_place_id="ChIJduomo",
+                             flight_time="2026-06-20T10:00:00Z", mode="scheduled")
+        result = _call_create_trip(event, single_route_mode=False)
+        assert result["statusCode"] == 400
+        body = json.loads(result["body"])
+        assert "fascia" in body.get("error", "").lower()
+
+    def test_airport_without_windows_always_accepted(self):
+        """FCO has no mvp_active_windows → no gate, trip created regardless of time."""
+        import json
+        fco = _fco()
+        assert fco.mvp_active_windows == [], "FCO must have no windows for this test"
+        valid_dir = fco.direction_labels[0]
+        # Use a time that would be outside MXP windows
+        event = _build_event(airport_code="FCO", direction=valid_dir,
+                             flight_time="2026-06-20T10:00:00Z", mode="scheduled")
+        result = _call_create_trip(event, single_route_mode=False)
+        body = json.loads(result["body"])
+        assert "fascia" not in body.get("error", "").lower()
+
+    def test_live_mode_not_gated(self):
+        """LIVE mode with flightTime outside MXP window → not rejected (gate is SCHEDULED-only)."""
+        # 2026-06-20T10:00:00Z = 12:00 Rome, outside window — but mode=live
+        event = _build_event(airport_code="MXP", direction="FROM_MILAN",
+                             origin_lat=45.4642, origin_lng=9.1900, origin_place_id="ChIJduomo",
+                             flight_time="2026-06-20T10:00:00Z", mode="live")
+        result = _call_create_trip(event, single_route_mode=False)
+        assert result["statusCode"] == 201
+
+    def test_matchmaker_always_runs_regardless_of_hour(self):
+        """process_airport_v4 runs at any hour — no time-window gate in matchmaker."""
         import handlers.matching.matchmaker as mm
-        mm._MVP_TIME_WINDOWS_MODE = True
         mm._MVP_SHADOW_POOL_OFF = False
 
         airport = _mxp()
-        # Force "outside window" — noon Rome time (UTC 10:00 in summer, between 09:00 and 14:00)
+        # UTC 10:00 = 12:00 Rome — formerly skipped, now must run
         now_outside = datetime(2026, 6, 20, 10, 0, tzinfo=timezone.utc)
-
-        with patch("handlers.matching.matchmaker.expire_stale_trips") as mock_expire, \
-             patch("handlers.matching.matchmaker.process_lock_window", return_value=0), \
-             patch("handlers.matching.matchmaker.optimize_pool", return_value=0):
-            locked, tentative = mm.process_airport_v4(airport, now_outside)
-
-        assert (locked, tentative) == (0, 0)
-        mock_expire.assert_not_called()
-
-    def test_matchmaker_processes_airport_inside_window(self):
-        """MvpTimeWindowsMode=true → process_airport_v4 runs normally inside window."""
-        import handlers.matching.matchmaker as mm
-        mm._MVP_TIME_WINDOWS_MODE = True
-        mm._MVP_SHADOW_POOL_OFF = False
-
-        airport = _mxp()
-        # 07:00 Rome time = 05:00 UTC — inside first window (06:00–09:00)
-        now_inside = datetime(2026, 6, 20, 5, 0, tzinfo=timezone.utc)
 
         with patch("handlers.matching.matchmaker.expire_stale_trips"), \
              patch("handlers.matching.matchmaker.process_lock_window", return_value=1) as mock_lock, \
              patch("handlers.matching.matchmaker.optimize_pool", return_value=0):
-            locked, tentative = mm.process_airport_v4(airport, now_inside)
-
-        assert locked == 1
-        mock_lock.assert_called_once()
-
-    def test_matchmaker_flag_off_processes_regardless_of_window(self):
-        """MvpTimeWindowsMode=false → process_airport_v4 always runs (flag off = full v4)."""
-        import handlers.matching.matchmaker as mm
-        mm._MVP_TIME_WINDOWS_MODE = False
-        mm._MVP_SHADOW_POOL_OFF = False
-
-        airport = _mxp()
-        now_outside = datetime(2026, 6, 20, 10, 0, tzinfo=timezone.utc)
-
-        with patch("handlers.matching.matchmaker.expire_stale_trips"), \
-             patch("handlers.matching.matchmaker.process_lock_window", return_value=2) as mock_lock, \
-             patch("handlers.matching.matchmaker.optimize_pool", return_value=1):
             locked, tentative = mm.process_airport_v4(airport, now_outside)
 
-        assert locked == 2
+        assert locked == 1
         mock_lock.assert_called_once()
 
 
