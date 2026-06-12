@@ -93,7 +93,7 @@ def _greedy_match_pool(airport: AirportConfig, now: datetime) -> int:
         trip_b = next((t for t in pool if t["tripId"] == trip_b_id), None)
         if not trip_a or not trip_b:
             continue
-        pickup = compute_pickup_point(trip_a, trip_b, airport) if _MVP_PICKUP_SIMPLE_MODE else None
+        pickup = compute_pickup_point(trip_a, trip_b, airport)
         _create_direct_match(trip_a, trip_b, score, airport, pickup_point=pickup)
         matched += 1
         metrics.add_metric(name="MatchesCreated", unit=MetricUnit.Count, value=1)
@@ -173,7 +173,7 @@ def _promote_tentative_to_match(
     Condition expression on both trips ensures idempotency under concurrent runs.
     Returns True if match was created, False if skipped (already processed).
     """
-    pickup = compute_pickup_point(trip_a, trip_b, airport) if _MVP_PICKUP_SIMPLE_MODE else None
+    pickup = compute_pickup_point(trip_a, trip_b, airport)
     pickup_time = compute_pickup_time(trip_a, trip_b, airport) if _MVP_PICKUP_SIMPLE_MODE else None
     match_item = build_match_item(
         trip_a, trip_b, float(tm.get("score", 0)), pickup_point=pickup, pickup_time=pickup_time
@@ -308,7 +308,7 @@ def optimize_pool(airport: AirportConfig, now: datetime) -> int:
         lock_at = min(dt_a, dt_b) - timedelta(hours=LOCK_HOURS_BEFORE)
 
         if lock_at <= now:
-            pickup = compute_pickup_point(trip_a, trip_b, airport) if _MVP_PICKUP_SIMPLE_MODE else None
+            pickup = compute_pickup_point(trip_a, trip_b, airport)
             _create_direct_match(trip_a, trip_b, score, airport, pickup_point=pickup)
             metrics.add_metric(name="MatchesLocked", unit=MetricUnit.Count, value=1)
             continue

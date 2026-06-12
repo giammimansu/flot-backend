@@ -326,6 +326,55 @@ class TestMvpPickupSimpleMode:
         assert detour_min >= 0.0
 
 
+# ── MvpPickupPoint — always computed regardless of flag ───────────────
+
+class TestPickupPointAlwaysPresent:
+    """pickupPoint in match item regardless of MVP_PICKUP_SIMPLE_MODE value."""
+
+    def _run_greedy_match(self, flag_value: bool) -> dict:
+        import handlers.matching.matchmaker as mm
+        mm._MVP_PICKUP_SIMPLE_MODE = flag_value
+
+        now = datetime.now(timezone.utc)
+        airport = _mxp()
+        trip_a = _make_to_airport_trip("pa", origin_lat=45.4642, origin_lng=9.1900)
+        trip_b = _make_to_airport_trip("pb", origin_lat=45.4680, origin_lng=9.1950)
+
+        captured = {}
+
+        def fake_build_match_item(a, b, score, pickup_point=None, pickup_time=None):
+            captured["pickup_point"] = pickup_point
+            return {
+                "pk": "MATCH#x", "sk": "META", "matchId": "x",
+                "tripId1": a["tripId"], "tripId2": b["tripId"],
+                "score": score,
+            }
+
+        fake_pairs = [(trip_a["tripId"], trip_b["tripId"], 0.85, 0.5, 0.0)]
+
+        with patch("handlers.matching.matchmaker._query_active_pool", return_value=[trip_a, trip_b]), \
+             patch("handlers.matching.matchmaker.build_compatibility_matrix", return_value=fake_pairs), \
+             patch("handlers.matching.matchmaker.find_optimal_assignments", return_value=fake_pairs), \
+             patch("handlers.matching.matchmaker.build_match_item", side_effect=fake_build_match_item), \
+             patch("handlers.matching.matchmaker.compute_pickup_point", return_value={"lat": 45.466, "lng": 9.192, "source": "raw_midpoint"}), \
+             patch("handlers.matching.matchmaker.dynamo.transact_write"), \
+             patch("handlers.matching.matchmaker.put_event"):
+            mm._greedy_match_pool(airport, now)
+
+        return captured
+
+    def test_pickup_point_present_flag_on(self):
+        captured = self._run_greedy_match(flag_value=True)
+        assert captured["pickup_point"] is not None
+        assert "lat" in captured["pickup_point"]
+
+    def test_pickup_point_present_flag_off(self):
+        """pickupPoint must be computed even with MVP_PICKUP_SIMPLE_MODE=false."""
+        captured = self._run_greedy_match(flag_value=False)
+        assert captured["pickup_point"] is not None
+        assert "lat" in captured["pickup_point"]
+
+
 # ── MvpFlightTrackerEnabled — flight_tracker ──────────────────────────
 
 class TestMvpFlightTrackerEnabled:
