@@ -73,7 +73,7 @@ def _google_nearby_fetch(lat: float, lng: float) -> dict | None:
     params = urllib.parse.urlencode({
         "location": f"{lat},{lng}",
         "rankby": "distance",
-        "type": "street_address|establishment",
+        "type": "establishment",
         "key": api_key,
     })
     url = f"{_NEARBY_SEARCH_URL}?{params}"
@@ -81,6 +81,15 @@ def _google_nearby_fetch(lat: float, lng: float) -> dict | None:
     req = urllib.request.Request(url, method="GET")
     with urllib.request.urlopen(req, timeout=_TIMEOUT_SEC) as resp:
         data = json.loads(resp.read())
+
+    status = data.get("status", "")
+    if status not in ("OK", "ZERO_RESULTS"):
+        logger.warning(
+            "places_snap_failed",
+            reason=f"google_status:{status}",
+            error_message=data.get("error_message", ""),
+        )
+        return None
 
     results = data.get("results") or []
     if not results:
