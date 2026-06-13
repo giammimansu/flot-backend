@@ -775,11 +775,16 @@ Resources:
       Environment:
         Variables:
           EVENT_BUS_NAME: !Ref FlotEventBus
+          GOOGLE_PLACES_API_KEY_PARAM: !Sub "/flot/${Stage}/places-key"
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref FlotTable
         - EventBridgePutEventsPolicy:
             EventBusName: !Ref FlotEventBus
+        - Statement:
+            Effect: Allow
+            Action: ssm:GetParameter
+            Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/flot/${Stage}/places-key"
       Events:
         CreateTrip:
           Type: Api
@@ -813,9 +818,16 @@ Resources:
       Handler: handlers.trips.search_trips.handler
       CodeUri: src/
       Description: POST /trips/search — search for matching trips
+      Environment:
+        Variables:
+          GOOGLE_PLACES_API_KEY_PARAM: !Sub "/flot/${Stage}/places-key"
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref FlotTable
+        - Statement:
+            Effect: Allow
+            Action: ssm:GetParameter
+            Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/flot/${Stage}/places-key"
       Events:
         SearchTrips:
           Type: Api
@@ -1051,11 +1063,16 @@ Resources:
       Environment:
         Variables:
           EVENT_BUS_NAME: !Ref FlotEventBus
+          GOOGLE_PLACES_API_KEY_PARAM: !Sub "/flot/${Stage}/places-key"
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref FlotTable
         - EventBridgePutEventsPolicy:
             EventBusName: !Ref FlotEventBus
+        - Statement:
+            Effect: Allow
+            Action: ssm:GetParameter
+            Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/flot/${Stage}/places-key"
       Events:
         TripCreatedLive:
           Type: CloudWatchEvent
@@ -1118,6 +1135,7 @@ Resources:
         Variables:
           LOCK_HOURS_BEFORE: "3"
           EVENT_BUS_NAME: !Ref FlotEventBus
+          GOOGLE_PLACES_API_KEY_PARAM: !Sub "/flot/${Stage}/places-key"
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref FlotTable
@@ -1127,6 +1145,10 @@ Resources:
             Effect: Allow
             Action: secretsmanager:GetSecretValue
             Resource: !Ref FirebaseCredentialsSecretArn
+        - Statement:
+            Effect: Allow
+            Action: ssm:GetParameter
+            Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/flot/${Stage}/places-key"
       Events:
         ScheduleEvent:
           Type: ScheduleV2
