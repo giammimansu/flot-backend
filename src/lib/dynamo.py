@@ -225,6 +225,18 @@ def get_chat_messages(
     return resp.get("Items", []), resp.get("LastEvaluatedKey")
 
 
+def get_user_reviews(user_id: str, limit: int = 20) -> list[dict[str, Any]]:
+    """Return reviews received by a user, newest-first."""
+    from boto3.dynamodb.conditions import Key
+
+    resp = _table.query(
+        KeyConditionExpression=Key("pk").eq(f"USER#{user_id}") & Key("sk").begins_with("REVIEW#"),
+        Limit=limit,
+        ScanIndexForward=False,
+    )
+    return resp.get("Items", [])
+
+
 def save_notification(user_id: str, payload: dict[str, Any]) -> None:
     import uuid
     _table.put_item(Item={

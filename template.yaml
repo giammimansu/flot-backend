@@ -605,6 +605,25 @@ Resources:
             Path: /users/{userId}/rating
             Method: GET
 
+  # Users: Public reviews list
+  GetUserReviewsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-get-user-reviews-${Stage}
+      Handler: handlers.users.get_user_reviews.handler
+      CodeUri: src/
+      Description: GET /users/{userId}/reviews — reviews received (match partners only)
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref FlotTable
+      Events:
+        GetUserReviews:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FlotApi
+            Path: /users/{userId}/reviews
+            Method: GET
+
   # Matches: Create review (P2 #11)
   CreateReviewFunction:
     Type: AWS::Serverless::Function

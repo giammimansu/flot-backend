@@ -39,7 +39,20 @@ def handler(event: dict, context) -> dict:
     match = get_item(f"MATCH#{caller_trip['matchId']}", "META") or {}
     unlocked = caller_id in match.get("unlockedBy", [])
 
-    return success(_public_profile(item, unlocked), origin)
+    trip_count = _count_completed_trips(target_id) if unlocked else 0
+
+    return success(_public_profile(item, unlocked, trip_count), origin)
+
+
+def _count_completed_trips(user_id: str) -> int:
+    """Number of completed trips for a user (shared-ride history)."""
+    from lib import dynamo
+    trips = dynamo.query_gsi(
+        index_name="GSI2-UserTrips",
+        pk_name="gsi2pk",
+        pk_value=f"USER#{user_id}",
+    )
+    return sum(1 for t in trips if t.get("status") == "completed")
 
 
 def _find_matched_trip_with(caller_id: str, target_id: str) -> dict | None:
@@ -63,7 +76,7 @@ def _find_matched_trip_with(caller_id: str, target_id: str) -> dict | None:
     return None
 
 
-def _public_profile(item: dict, unlocked: bool) -> dict:
+def _public_profile(item: dict, unlocked: bool, trip_count: int = 0) -> dict:
     name: str = item.get("name") or ""
     parts = name.split()
     first_name = parts[0] if parts else ""
@@ -83,6 +96,7 @@ def _public_profile(item: dict, unlocked: bool) -> dict:
             "city": item.get("city"),
             "bio": item.get("bio"),
             "rating": compute_rating(item),
+            "tripCount": trip_count,
         }
     return {
         "userId": item.get("userId"),
