@@ -39,6 +39,8 @@ def handler(event: dict, context) -> dict:
         "lang": item.get("lang"),
         "gender": item.get("gender"),
         "ageGroup": item.get("ageGroup"),
+        "bio": item.get("bio"),
+        "city": item.get("city"),
         "onboarding": item.get("onboarding", False),
         "createdAt": item.get("createdAt"),
     }

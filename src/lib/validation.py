@@ -80,6 +80,8 @@ class UpdateProfileRequest(BaseModel):
     lang: Language | None = None
     gender: Gender | None = None
     ageGroup: AgeGroup | None = None  # noqa: N815 — matches frontend convention
+    bio: str | None = Field(None, max_length=300)
+    city: str | None = Field(None, max_length=100)
     onboarding: bool | None = None
 
 
@@ -97,6 +99,8 @@ class UserProfileResponse(BaseModel):
     lang: Language | None = None
     gender: Gender | None = None
     ageGroup: AgeGroup | None = None  # noqa: N815
+    bio: str | None = None
+    city: str | None = None
     onboarding: bool = False
     createdAt: str | None = None  # noqa: N815
 

@@ -50,8 +50,10 @@ def _find_matched_trip_with(caller_id: str, target_id: str) -> dict | None:
         pk_name="gsi2pk",
         pk_value=f"USER#{caller_id}",
     )
+    # Trip stays linked to the match across its whole unlocked lifecycle.
+    active_statuses = {"matched", "unlocked", "active", "completed"}
     for trip in trips:
-        if trip.get("status") != "matched" or not trip.get("matchId"):
+        if trip.get("status") not in active_statuses or not trip.get("matchId"):
             continue
         match = get_item(f"MATCH#{trip['matchId']}", "META")
         if not match:
@@ -75,9 +77,11 @@ def _public_profile(item: dict, unlocked: bool) -> dict:
             "lastName": last_name,
             "photoUrl": item.get("photoUrl"),
             "verified": item.get("verified", False),
-            "age": item.get("age"),
+            "gender": item.get("gender"),
+            "ageGroup": item.get("ageGroup"),
+            "lang": item.get("lang"),
             "city": item.get("city"),
-            "languages": item.get("languages"),
+            "bio": item.get("bio"),
             "rating": compute_rating(item),
         }
     return {
