@@ -30,6 +30,7 @@ def test_mock_provider_returns_same_coords():
 
 def _places_response(lat=45.4650, lng=9.1910, name="Via Test, 1", place_id="abc123"):
     return json.dumps({
+        "status": "OK",
         "results": [{
             "geometry": {"location": {"lat": lat, "lng": lng}},
             "vicinity": name,
@@ -125,3 +126,61 @@ def test_returns_first_result_regardless_of_distance():
     assert result is not None
     assert result["lat"] == 45.5000
     assert result["placeId"] == "far_id"
+
+
+# ── Filters out coarse / address-less results ─────────────────────────
+
+def _multi_response(results):
+    return json.dumps({"status": "OK", "results": results}).encode()
+
+
+def test_skips_coarse_political_result():
+    """Country/political top result (e.g. 'Italy') is skipped for the next valid one."""
+    airport = _mock_airport(provider="google")
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = _multi_response([
+        {
+            "geometry": {"location": {"lat": 45.0, "lng": 9.0}},
+            "name": "Italy",
+            "types": ["country", "political"],
+            "place_id": "country_id",
+        },
+        {
+            "geometry": {"location": {"lat": 45.47, "lng": 9.21}},
+            "vicinity": "Via Reale, 10",
+            "types": ["establishment", "point_of_interest"],
+            "place_id": "good_id",
+        },
+    ])
+    mock_resp.__enter__ = lambda s: s
+    mock_resp.__exit__ = MagicMock(return_value=False)
+
+    with patch("lib.places._get_api_key", return_value="test-key"):
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            result = snap_to_nearest_address(45.4642, 9.1900, airport)
+
+    assert result is not None
+    assert result["address"] == "Via Reale, 10"
+    assert result["placeId"] == "good_id"
+
+
+def test_skips_result_without_vicinity():
+    """Result lacking vicinity is skipped; never falls back to name."""
+    airport = _mock_airport(provider="google")
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = _multi_response([
+        {
+            "geometry": {"location": {"lat": 45.0, "lng": 9.0}},
+            "name": "Some Place",
+            "types": ["establishment"],
+            "place_id": "no_vicinity_id",
+        },
+    ])
+    mock_resp.__enter__ = lambda s: s
+    mock_resp.__exit__ = MagicMock(return_value=False)
+
+    with patch("lib.places._get_api_key", return_value="test-key"):
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            result = snap_to_nearest_address(45.4642, 9.1900, airport)
+
+    assert result is None

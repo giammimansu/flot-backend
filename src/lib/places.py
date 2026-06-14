@@ -26,6 +26,18 @@ logger = Logger(child=True)
 _NEARBY_SEARCH_URL = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
 _TIMEOUT_SEC = 2
 
+# Result types that are too coarse to be a usable pickup address
+# (country/region/city-level political or administrative features).
+_REJECTED_TYPES = frozenset({
+    "country",
+    "political",
+    "administrative_area_level_1",
+    "administrative_area_level_2",
+    "administrative_area_level_3",
+    "locality",
+    "postal_code",
+})
+
 _ssm_client = None
 _api_key_cache: str | None = None
 
@@ -96,14 +108,24 @@ def _google_nearby_fetch(lat: float, lng: float) -> dict | None:
         logger.warning("places_snap_failed", reason="no_results")
         return None
 
-    top = results[0]
-    loc = top["geometry"]["location"]
-    return {
-        "lat": loc["lat"],
-        "lng": loc["lng"],
-        "address": top.get("vicinity") or top.get("name", ""),
-        "placeId": top.get("place_id", ""),
-    }
+    for result in results:
+        # Skip coarse admin/political features (e.g. "Italy").
+        if _REJECTED_TYPES.intersection(result.get("types") or []):
+            continue
+        # Require a real street-level address; never fall back to name.
+        address = result.get("vicinity")
+        if not address:
+            continue
+        loc = result["geometry"]["location"]
+        return {
+            "lat": loc["lat"],
+            "lng": loc["lng"],
+            "address": address,
+            "placeId": result.get("place_id", ""),
+        }
+
+    logger.warning("places_snap_failed", reason="no_usable_result")
+    return None
 
 
 def _mock_snap(lat: float, lng: float) -> dict:
