@@ -114,7 +114,7 @@ AIRPORTS: dict[str, AirportConfig] = {
         country="IT",
         currency="EUR",
         base_fare=12000,
-        unlock_fee=99,
+        unlock_fee=199,
         timezone="Europe/Rome",
         terminals=[
             Terminal(code="T1", label="Terminal 1"),

@@ -28,7 +28,7 @@ class TestGetAirport:
         assert airport.country == "IT"
         assert airport.currency == "EUR"
         assert airport.base_fare == 12000
-        assert airport.unlock_fee == 99
+        assert airport.unlock_fee == 199
         assert airport.timezone == "Europe/Rome"
         assert airport.active is True
 
@@ -112,7 +112,7 @@ class TestAirportToDict:
         assert data["code"] == "MXP"
         assert data["name"] == "Milano Malpensa"
         assert data["baseFare"] == 12000
-        assert data["unlockFee"] == 99
+        assert data["unlockFee"] == 199
 
     def test_serializes_terminals(self):
         """Terminals should be a list of dicts."""
