@@ -115,7 +115,7 @@ def test_unknown_provider_returns_none():
 def test_returns_first_result_regardless_of_distance():
     airport = _mock_airport(provider="google")
     mock_resp = MagicMock()
-    mock_resp.read.return_value = _places_response(45.5000, 9.2500, "Far Place", "far_id")
+    mock_resp.read.return_value = _places_response(45.5000, 9.2500, "Far Place, Milano", "far_id")
     mock_resp.__enter__ = lambda s: s
     mock_resp.__exit__ = MagicMock(return_value=False)
 
@@ -161,6 +161,37 @@ def test_skips_coarse_political_result():
 
     assert result is not None
     assert result["address"] == "Via Reale, 10"
+    assert result["placeId"] == "good_id"
+
+
+def test_skips_country_only_vicinity():
+    """A POI with country-only vicinity ('Italy') is skipped for the next street-level one."""
+    airport = _mock_airport(provider="google")
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = _multi_response([
+        {
+            "geometry": {"location": {"lat": 45.0, "lng": 9.0}},
+            "name": "V.le Abruzzi Via Plinio",
+            "vicinity": "Italy",
+            "types": ["transit_station", "point_of_interest", "establishment"],
+            "place_id": "transit_id",
+        },
+        {
+            "geometry": {"location": {"lat": 45.47, "lng": 9.21}},
+            "vicinity": "Via Plinio, Milano",
+            "types": ["store", "establishment"],
+            "place_id": "good_id",
+        },
+    ])
+    mock_resp.__enter__ = lambda s: s
+    mock_resp.__exit__ = MagicMock(return_value=False)
+
+    with patch("lib.places._get_api_key", return_value="test-key"):
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            result = snap_to_nearest_address(45.4642, 9.1900, airport)
+
+    assert result is not None
+    assert result["address"] == "Via Plinio, Milano"
     assert result["placeId"] == "good_id"
 
 

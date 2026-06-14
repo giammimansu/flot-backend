@@ -116,6 +116,10 @@ def _google_nearby_fetch(lat: float, lng: float) -> dict | None:
         address = result.get("vicinity")
         if not address:
             continue
+        # Some POIs (e.g. transit stations) carry a country-only vicinity
+        # like "Italy". A usable address is "street, locality" → has a comma.
+        if "," not in address:
+            continue
         loc = result["geometry"]["location"]
         return {
             "lat": loc["lat"],
