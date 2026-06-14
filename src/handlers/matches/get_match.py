@@ -49,6 +49,11 @@ def _trip_summary(trip: dict) -> dict:
         "luggage": int(trip["luggage"]) if trip.get("luggage") is not None else None,
         "paxCount": int(trip["paxCount"]) if trip.get("paxCount") is not None else None,
         "mode": trip.get("mode"),
+        # MVP TO_AIRPORT origin (departure address in city)
+        "originLat": float(trip["originLat"]) if trip.get("originLat") is not None else None,
+        "originLng": float(trip["originLng"]) if trip.get("originLng") is not None else None,
+        "originPlaceId": trip.get("originPlaceId"),
+        "originLabel": trip.get("originLabel"),
     }
 
 
