@@ -95,9 +95,16 @@ def send_push_notification(token: str, title: str, body: str, payload: dict) -> 
 
     try:
         _get_firebase_app()
+        # Data-only message (no `notification` block). A `notification` block
+        # is auto-displayed by FCM AND triggers the SW onBackgroundMessage
+        # handler, producing TWO notifications. Sending title/body inside
+        # `data` lets the SW render exactly one. See public/firebase-messaging-sw.js.
         message = messaging.Message(
-            notification=messaging.Notification(title=title, body=body),
-            data={k: str(v) for k, v in payload.items() if isinstance(v, (str, int, float, bool))},
+            data={
+                "title": title,
+                "body": body,
+                **{k: str(v) for k, v in payload.items() if isinstance(v, (str, int, float, bool))},
+            },
             token=token,
         )
         messaging.send(message)
