@@ -52,7 +52,7 @@ def test_completes_unlocked_match():
          patch.object(on_trip_completed, "get_trip", side_effect=lambda tid: trips[tid]), \
          patch.object(on_trip_completed, "table", fake_table), \
          patch.object(on_trip_completed, "put_event") as mock_evt, \
-         patch.object(on_trip_completed, "save_notification") as mock_notif:
+         patch.object(on_trip_completed, "deliver") as mock_notif:
 
         on_trip_completed.handler(_event(), _ctx())
 
@@ -61,7 +61,10 @@ def test_completes_unlocked_match():
     # review.requested emitted once per user.
     assert mock_evt.call_count == 2
     assert all(c[0][0] == "review.requested" for c in mock_evt.call_args_list)
+    # One deliver() per user — it persists in-app internally, so no separate
+    # save_notification call (which would double-persist the feed item).
     assert mock_notif.call_count == 2
+    assert not hasattr(on_trip_completed, "save_notification")
 
 
 def test_idempotent_on_terminal_status():
@@ -107,7 +110,7 @@ def test_sets_chat_ttl_on_messages():
          patch.object(on_trip_completed, "get_trip", side_effect=lambda tid: trips[tid]), \
          patch.object(on_trip_completed, "table", fake_table), \
          patch.object(on_trip_completed, "put_event"), \
-         patch.object(on_trip_completed, "save_notification"):
+         patch.object(on_trip_completed, "deliver"):
 
         on_trip_completed.handler(_event(), _ctx())
 

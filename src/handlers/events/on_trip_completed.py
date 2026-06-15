@@ -24,7 +24,7 @@ from aws_lambda_powertools import Logger, Tracer
 
 from lib.dynamo import get_match, get_trip, table, now_iso
 from lib.eventbridge import put_event
-from lib.notifications import save_notification
+from lib.notifications import deliver
 from lib.state_machine import MatchStateMachine, TripStateMachine, InvalidTransitionError
 
 logger = Logger()
@@ -136,7 +136,10 @@ def handler(event: dict, context) -> None:
             "userId": user_id,
             "completedAt": completed_at,
         })
-        save_notification(
+        # deliver() persists in-app internally (persist=True) AND pushes
+        # WS/Push/Email — so the review request reaches the user even with the
+        # app closed. Do NOT also call save_notification (would double-persist).
+        deliver(
             user_id,
             "Com'è andata?",
             "Il tuo viaggio condiviso è completato. Lascia una recensione al tuo partner.",
