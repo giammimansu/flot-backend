@@ -9,6 +9,7 @@ from __future__ import annotations
 from aws_lambda_powertools import Logger, Tracer
 
 from lib.dynamo import get_trip, get_user
+from lib.i18n import tr, user_lang
 from lib.metrics import business_metrics
 from lib.notifications import deliver
 
@@ -39,10 +40,11 @@ def handler(event: dict, context) -> None:
     if not user_id:
         return
 
+    lang = user_lang(get_user(user_id))
     deliver(
         user_id,
-        "Nessun partner trovato 😔",
-        "Non siamo riusciti a trovare un partner per il tuo viaggio questa volta. Riprova al prossimo volo!",
+        tr("trip_expired.title", lang),
+        tr("trip_expired.body", lang),
         {"type": "trip_expired", "tripId": trip_id, "airportCode": airport_code},
     )
 

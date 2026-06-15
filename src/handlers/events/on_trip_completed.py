@@ -22,8 +22,9 @@ import time
 from boto3.dynamodb.conditions import Key
 from aws_lambda_powertools import Logger, Tracer
 
-from lib.dynamo import get_match, get_trip, table, now_iso
+from lib.dynamo import get_match, get_trip, get_user, table, now_iso
 from lib.eventbridge import put_event
+from lib.i18n import tr, user_lang
 from lib.notifications import deliver
 from lib.state_machine import MatchStateMachine, TripStateMachine, InvalidTransitionError
 
@@ -139,10 +140,11 @@ def handler(event: dict, context) -> None:
         # deliver() persists in-app internally (persist=True) AND pushes
         # WS/Push/Email — so the review request reaches the user even with the
         # app closed. Do NOT also call save_notification (would double-persist).
+        lang = user_lang(get_user(user_id))
         deliver(
             user_id,
-            "Com'è andata?",
-            "Il tuo viaggio condiviso è completato. Lascia una recensione al tuo partner.",
+            tr("review_requested.title", lang),
+            tr("review_requested.body", lang),
             {"type": "review_requested", "matchId": match_id},
         )
 

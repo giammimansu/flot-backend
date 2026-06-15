@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 from lib.airports import get_airport
 from lib.dynamo import get_user
+from lib.i18n import tr, user_lang
 from lib.notifications import deliver
 from lib.schedulers import create_unlock_reminder_schedule
 from handlers.chat.system_message import post_partner_unlocked
@@ -33,13 +34,16 @@ def handler(event, context):
 
     savings = airport.base_fare // 2 / 100
 
-    name = unlocked_by_name.split()[0] if unlocked_by_name else "Il tuo partner"
+    # Localize to the RECIPIENT (partner), not the actor who unlocked.
+    lang = user_lang(partner)
+    default_partner = "Il tuo partner" if lang == "it" else "Your partner"
+    name = unlocked_by_name.split()[0] if unlocked_by_name else default_partner
 
     # WS → Push → Email chain with dedup (push skipped if WS delivered)
     deliver(
         partner_id,
-        title=f"{name} ha sbloccato! 🔓",
-        body=f"Sblocca anche tu per condividere il taxi e risparmiare ~€{savings:.0f}",
+        title=tr("partner_unlocked.title", lang, name=name),
+        body=tr("partner_unlocked.body", lang, savings=f"{savings:.0f}"),
         payload={
             "type": "match.partner_unlocked",
             "matchId": match_id,

@@ -4,7 +4,8 @@ Fires when a definitive match never reached "completed" and the flight has
 already departed. Marks the match and both trips as expired (no re-pool — the
 flight is gone) and notifies both users.
 """
-from lib.dynamo import get_match, get_trip, table, now_iso
+from lib.dynamo import get_match, get_trip, get_user, table, now_iso
+from lib.i18n import tr, user_lang
 from lib.notifications import save_notification
 from lib.state_machine import MatchStateMachine, TripStateMachine
 from aws_lambda_powertools import Logger
@@ -56,10 +57,11 @@ def handler(event, context):
 
     # 3. Notifica entrambi gli utenti
     for user_id in (match["userId1"], match["userId2"]):
+        lang = user_lang(get_user(user_id))
         save_notification(
             user_id,
-            "Match scaduto",
-            "Il volo è partito e il match non è stato completato.",
+            tr("match_expired.title", lang),
+            tr("match_expired.body", lang),
             {"type": "match_expired", "matchId": match_id},
         )
 

@@ -22,6 +22,7 @@ from firebase_admin import credentials, messaging
 from aws_lambda_powertools import Logger
 
 from lib import dynamo
+from lib.i18n import tr, user_lang
 from lib.websocket import send_to_user
 
 logger = Logger()
@@ -239,9 +240,10 @@ def deliver(
 
 
 def notify_match_found(user_id: str, match_data: dict, match_context_for_user: dict) -> DeliveryResult:
-    """Notify a user that a match was found."""
-    title = "Match trovato! 🎉"
-    body = "Abbiamo trovato un partner per il tuo viaggio. Sblocca per chattare!"
+    """Notify a user that a match was found. Copy localized to recipient lang."""
+    lang = user_lang(dynamo.get_user(user_id))
+    title = tr("match_found.title", lang)
+    body = tr("match_found.body", lang)
     return deliver(user_id, title, body, {**match_context_for_user, "type": "match.found"})
 
 

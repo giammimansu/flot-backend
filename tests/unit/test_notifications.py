@@ -55,3 +55,31 @@ def test_send_push_real():
         send_push_notification("token123", "Title", "Body", {"data": "x"})
         mock_messaging.send.assert_called_once()
         assert mock_messaging.Message.call_args.kwargs["token"] == "token123"
+
+
+# ── Localization (it/en) ──────────────────────────────────────────────
+
+def _push_title_for_lang(lang_value):
+    """Run notify_match_found with a mocked profile, return the pushed title."""
+    profile = {"pushToken": "tok", "email": "e@e.com"}
+    if lang_value is not None:
+        profile["lang"] = lang_value
+    with patch("lib.notifications.save_notification"), \
+         patch("lib.notifications.send_to_user", return_value=0), \
+         patch("lib.notifications.dynamo.get_item", return_value=profile), \
+         patch("lib.notifications.send_push_notification", return_value=True) as mock_push, \
+         patch("lib.notifications.send_email_notification"):
+        notify_match_found("u1", {"matchId": "m1"}, {"some": "data"})
+    return mock_push.call_args[0][1]  # title positional arg
+
+
+def test_match_found_copy_italian():
+    assert _push_title_for_lang("it") == "Match trovato! 🎉"
+
+
+def test_match_found_copy_english():
+    assert _push_title_for_lang("en") == "Match found! 🎉"
+
+
+def test_match_found_copy_defaults_english_when_lang_absent():
+    assert _push_title_for_lang(None) == "Match found! 🎉"

@@ -50,6 +50,7 @@ def test_completes_unlocked_match():
 
     with patch.object(on_trip_completed, "get_match", return_value=match), \
          patch.object(on_trip_completed, "get_trip", side_effect=lambda tid: trips[tid]), \
+         patch.object(on_trip_completed, "get_user", return_value={"lang": "en"}), \
          patch.object(on_trip_completed, "table", fake_table), \
          patch.object(on_trip_completed, "put_event") as mock_evt, \
          patch.object(on_trip_completed, "deliver") as mock_notif:
@@ -108,6 +109,7 @@ def test_sets_chat_ttl_on_messages():
 
     with patch.object(on_trip_completed, "get_match", return_value=match), \
          patch.object(on_trip_completed, "get_trip", side_effect=lambda tid: trips[tid]), \
+         patch.object(on_trip_completed, "get_user", return_value={"lang": "en"}), \
          patch.object(on_trip_completed, "table", fake_table), \
          patch.object(on_trip_completed, "put_event"), \
          patch.object(on_trip_completed, "deliver"):

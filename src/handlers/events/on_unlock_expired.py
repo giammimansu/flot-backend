@@ -2,7 +2,8 @@ import stripe
 from boto3.dynamodb.conditions import Attr
 
 from lib.airports import get_airport
-from lib.dynamo import get_match, get_trip, table, now_iso
+from lib.dynamo import get_match, get_trip, get_user, table, now_iso
+from lib.i18n import tr, user_lang
 from lib.notifications import notify_user
 from lib.state_machine import MatchStateMachine, TripStateMachine
 from lib.metrics import business_metrics
@@ -112,19 +113,21 @@ def handler(event, context):
     unlocked_user_id = match["unlockedBy"][0]
     partner_user_id = match["userId2"] if unlocked_user_id == match["userId1"] else match["userId1"]
 
-    # Al primo (che ha pagato): rassicurazione
+    # Al primo (che ha pagato): rassicurazione — localizzato sulla lingua del destinatario
+    payer_lang = user_lang(get_user(unlocked_user_id))
     notify_user(unlocked_user_id, {
         "type": "unlock_expired_payer",
-        "title": "Nessun addebito",
-        "body": "Il tuo partner non ha risposto in tempo. €0 addebitati. Cerchiamo qualcun altro!",
+        "title": tr("unlock_expired.payer.title", payer_lang),
+        "body": tr("unlock_expired.payer.body", payer_lang),
         "matchId": match_id,
     })
 
-    # Al secondo (che non ha risposto): info
+    # Al secondo (che non ha risposto): info — localizzato sulla sua lingua
+    non_payer_lang = user_lang(get_user(partner_user_id))
     notify_user(partner_user_id, {
         "type": "unlock_expired_non_payer",
-        "title": "Match scaduto",
-        "body": "Non hai sbloccato in tempo. Cercheremo un nuovo partner per te.",
+        "title": tr("unlock_expired.non_payer.title", non_payer_lang),
+        "body": tr("unlock_expired.non_payer.body", non_payer_lang),
         "matchId": match_id,
     })
 

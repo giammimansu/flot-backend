@@ -2,7 +2,8 @@ from datetime import datetime, timezone
 
 from lib.airports import get_airport
 from lib.dynamo import get_match, get_user
-from lib.notifications import send_push_notification, send_email
+from lib.i18n import tr, user_lang
+from lib.notifications import send_push_notification, send_email_notification
 from aws_lambda_powertools import Logger
 
 logger = Logger()
@@ -28,38 +29,41 @@ def handler(event, context):
     airport = get_airport(match["airportCode"])
     deadline = datetime.fromisoformat(match["unlockDeadline"].replace("Z", "+00:00"))
     minutes_left = max(0, int((deadline - datetime.now(timezone.utc)).total_seconds() / 60))
+    savings = f"{airport.base_fare // 2 / 100:.0f}"
+
+    # Localize to the RECIPIENT (partner) language, not the actor's.
+    lang = user_lang(partner)
 
     # Escalazione copy in base al reminder number
     if reminder_number == 1:
-        title = f"{unlocked_name} ti sta aspettando"
-        body = f"Hai ancora {minutes_left} min per sbloccare e risparmiare ~€{airport.base_fare // 2 / 100:.0f}"
+        variant = "first"
     elif reminder_number == total_reminders:
-        title = "⏰ Ultima chance!"
-        body = f"Il match con {unlocked_name} scade tra {minutes_left} min. Sblocca ora o perdi il match."
+        variant = "last"
     else:
-        title = f"Hai ancora {minutes_left} min"
-        body = f"{unlocked_name} ha già sbloccato. Sblocca per condividere il taxi."
+        variant = "mid"
+
+    title = tr(f"unlock_reminder.{variant}.title", lang,
+               partner_name=unlocked_name, minutes_left=minutes_left, savings=savings)
+    body = tr(f"unlock_reminder.{variant}.body", lang,
+              partner_name=unlocked_name, minutes_left=minutes_left, savings=savings)
 
     # Push
     if partner.get("pushToken"):
         send_push_notification(
-            token=partner["pushToken"],
-            title=title,
-            body=body,
-            data={"matchId": match_id, "action": "open_match"},
-            priority="high",
+            partner["pushToken"],
+            title,
+            body,
+            {"matchId": match_id, "action": "open_match", "type": "unlock_reminder"},
         )
 
     # Email solo per reminder escalati (non spammare)
     if reminder_number >= total_reminders - 1 and partner.get("email"):
-        send_email(
-            to=partner["email"],
-            template="unlock_reminder_urgent",
-            data={
-                "partnerName": unlocked_name,
-                "minutesLeft": minutes_left,
-                "matchUrl": f"https://app.flot.app/match/{match_id}",
-            },
+        match_url = f"https://app.flot.app/match/{match_id}"
+        send_email_notification(
+            partner["email"],
+            tr("unlock_reminder.email.subject", lang),
+            tr("unlock_reminder.email.body", lang,
+               partner_name=unlocked_name, minutes_left=minutes_left, match_url=match_url),
         )
 
     logger.info("unlock_reminder_sent",
