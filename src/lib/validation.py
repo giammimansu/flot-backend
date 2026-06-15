@@ -153,13 +153,25 @@ class PushTokenUpdate(BaseModel):
     platform: str = Field(..., pattern="^(fcm|apns)$")
 
 
+class ReviewDimensions(BaseModel):
+    """Optional per-dimension star ratings (1-5). Any subset may be provided."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    punctuality: int | None = Field(None, ge=1, le=5)
+    sociability: int | None = Field(None, ge=1, le=5)
+    reliability: int | None = Field(None, ge=1, le=5)
+    cleanliness: int | None = Field(None, ge=1, le=5)
+
+
 class CreateReviewRequest(BaseModel):
     """Payload for POST /matches/{matchId}/review (P2 #11)."""
 
     model_config = ConfigDict(extra="forbid")
 
-    rating: int = Field(..., ge=1, le=5)
+    rating: int = Field(..., ge=1, le=5)  # overall, unchanged
     comment: str | None = Field(None, max_length=500)
+    dimensions: ReviewDimensions | None = None  # optional multi-dimensional ratings
 
 
 class ChatMessageCreate(BaseModel):

@@ -16,12 +16,25 @@ logger = Logger()
 tracer = Tracer()
 
 
-def compute_rating(profile: dict) -> dict:
-    """Return {average, count} from a profile's rating aggregates."""
-    count = int(profile.get("ratingCount", 0) or 0)
-    total = Decimal(str(profile.get("ratingSum", 0) or 0))
+REVIEW_DIMENSIONS = ("punctuality", "sociability", "reliability", "cleanliness")
+
+
+def _avg_count(profile: dict, sum_key: str, count_key: str) -> dict:
+    """Return {average, count} for a Sum/Count pair; average=None when count is 0/absent."""
+    count = int(profile.get(count_key, 0) or 0)
+    total = Decimal(str(profile.get(sum_key, 0) or 0))
     average = round(float(total) / count, 2) if count else None
     return {"average": average, "count": count}
+
+
+def compute_rating(profile: dict) -> dict:
+    """Return top-level overall {average, count} plus per-dimension breakdown."""
+    overall = _avg_count(profile, "ratingSum", "ratingCount")
+    dimensions = {
+        name: _avg_count(profile, f"{name}Sum", f"{name}Count")
+        for name in REVIEW_DIMENSIONS
+    }
+    return {**overall, "dimensions": dimensions}
 
 
 @logger.inject_lambda_context

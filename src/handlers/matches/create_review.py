@@ -25,14 +25,20 @@ from botocore.exceptions import ClientError
 from pydantic import ValidationError
 
 from lib import dynamo
+from lib.airports import get_airport
 from lib.dynamo import get_match, now_iso
 from lib.http import AppError, app_handler, created
+from lib.trust import record_violation
 from lib.validation import CreateReviewRequest
 
 logger = Logger()
 tracer = Tracer()
 
 REVIEW_WINDOW_HOURS = int(os.environ.get("REVIEW_WINDOW_HOURS", "48"))
+LOW_PUNCTUALITY_THRESHOLD = int(os.environ.get("LOW_PUNCTUALITY_THRESHOLD", "2"))
+
+# Optional star dimensions, each with its own running Sum/Count on the profile.
+REVIEW_DIMENSIONS = ("punctuality", "sociability", "reliability", "cleanliness")
 
 
 @logger.inject_lambda_context
@@ -73,6 +79,16 @@ def handler(event: dict, context) -> dict:
     created_at = now_iso()
     table_name = os.environ["TABLE_NAME"]
 
+    # Dimensions actually provided (non-None) in the payload.
+    dims = req.dimensions
+    provided: dict[str, int] = {}
+    if dims is not None:
+        provided = {
+            name: getattr(dims, name)
+            for name in REVIEW_DIMENSIONS
+            if getattr(dims, name) is not None
+        }
+
     review_item = {
         "pk": f"USER#{reviewed_id}",
         "sk": f"REVIEW#{match_id}",
@@ -83,7 +99,17 @@ def handler(event: dict, context) -> dict:
         "comment": req.comment,
         "airportCode": match.get("airportCode"),
         "createdAt": created_at,
+        # Per-dimension scores (null when not voted).
+        **{name: provided.get(name) for name in REVIEW_DIMENSIONS},
     }
+
+    # Build the profile UpdateExpression dynamically: overall always, plus a
+    # Sum/Count pair for each provided dimension. All counts reuse :one.
+    add_parts = ["ratingSum :r", "ratingCount :one"]
+    expr_values: dict = {":r": {"N": str(req.rating)}, ":one": {"N": "1"}}
+    for name, value in provided.items():
+        add_parts.append(f"{name}Sum :{name}, {name}Count :one")
+        expr_values[f":{name}"] = {"N": str(value)}
 
     try:
         dynamo.transact_write([
@@ -96,11 +122,8 @@ def handler(event: dict, context) -> dict:
             {"Update": {
                 "Key": dynamo.to_ddb({"pk": f"USER#{reviewed_id}", "sk": "PROFILE"}),
                 "TableName": table_name,
-                "UpdateExpression": "ADD ratingSum :r, ratingCount :one",
-                "ExpressionAttributeValues": {
-                    ":r": {"N": str(req.rating)},
-                    ":one": {"N": "1"},
-                },
+                "UpdateExpression": "ADD " + ", ".join(add_parts),
+                "ExpressionAttributeValues": expr_values,
             }},
         ])
     except ClientError as e:
@@ -108,7 +131,24 @@ def handler(event: dict, context) -> dict:
             raise AppError(409, "You already reviewed this match") from e
         raise
 
-    logger.info("review_created", matchId=match_id, reviewedUserId=reviewed_id, rating=req.rating)
+    logger.info(
+        "review_created",
+        matchId=match_id,
+        reviewedUserId=reviewed_id,
+        rating=req.rating,
+        dimensions=provided,
+    )
+
+    # Wire low punctuality into the reputation system. Best-effort: outside the
+    # review transaction, never fails the review.
+    punctuality = provided.get("punctuality")
+    if punctuality is not None and punctuality <= LOW_PUNCTUALITY_THRESHOLD:
+        try:
+            airport = get_airport(match.get("airportCode"))
+            record_violation(reviewed_id, reason="low_punctuality", airport=airport)
+        except Exception:  # noqa: BLE001 — reputation wiring must not break reviews
+            logger.exception("low_punctuality_violation_failed", reviewedUserId=reviewed_id)
+
     return created({
         "matchId": match_id,
         "reviewedUserId": reviewed_id,
