@@ -1320,6 +1320,36 @@ Resources:
             Auth:
               Authorizer: NONE
 
+  # ── Flight Day Browse (whole-day "find your flight") ─────────────
+
+  FlightDayFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub flot-flight-day-${Stage}
+      Handler: handlers.flights.day_flights.handler
+      CodeUri: src/
+      Description: GET /flights/day — AeroDataBox whole-day browse (2x12h windows merged)
+      MemorySize: 256
+      Timeout: 15
+      Environment:
+        Variables:
+          AERODATABOX_SSM_KEY: !Sub "/flot/${Stage}/aerodatabox-key"
+          FLIGHT_TRACKER_PROVIDER: !Ref FlightTrackerProvider
+      Policies:
+        - Statement:
+            Effect: Allow
+            Action: ssm:GetParameter
+            Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/flot/${Stage}/aerodatabox-key"
+      Events:
+        FlightDay:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FlotApi
+            Path: /flights/day
+            Method: GET
+            Auth:
+              Authorizer: NONE
+
   # ── v4 — flight.delayed / flight.advanced handler ─────────────────
 
   OnFlightDelayedFunction:
